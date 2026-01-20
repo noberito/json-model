@@ -4,14 +4,13 @@ SHELL   = /bin/bash
 MODULE  = json_model
 
 ifndef PYTHON
-PYTHON  = python
+PYTHON  = python3
 endif
 
 venv:
 	$(PYTHON) -m venv venv
-	source venv/bin/activate
-	pip install -U pip
-	pip install -e .[dev]
+	./venv/bin/pip install -U pip
+	./venv/bin/pip install -e .[dev]
 
 .PHONY: dev
 dev: venv
