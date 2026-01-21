@@ -1,39 +1,47 @@
-import os
-import sys
-import re
 import json
-import yaml
 import logging
-from pathlib import Path
+import os
+import re
+import subprocess
+import sys
+import tempfile
 from importlib.metadata import version as pkg_version
 from importlib.resources import files
-import subprocess
-import tempfile
+from pathlib import Path
 
-from .mtypes import Jsonable, JsonSchema, ModelError
-from .utils import log, tname, json_loads, load_data_file
-from .resolver import Resolver
-from .model import JsonModel
-from .xstatic import xstatic_compile
-from . import optim, analyze, objmerge
-from .runtime.types import EntryCheckFun, Report
-from .runtime.support import _path as json_path
+import yaml
+
+from . import analyze, objmerge, optim
 from .export import model2python
+from .model import JsonModel
+from .mtypes import Jsonable, JsonSchema, ModelError
+from .resolver import Resolver
+from .runtime.support import _path as json_path
+from .runtime.types import EntryCheckFun, Report
+from .utils import json_loads, load_data_file, log, tname
+from .xstatic import xstatic_compile
 
 # language short name to display name
 LANG = {
-  "py": "Python",
-  "c": "C",
-  "js": "JavaScript",
-  "plpgsql": "PL/pgSQL",
-  "pl": "Perl",
-  "java": "Java",
-  "json": "IR",
+    "py": "Python",
+    "c": "C",
+    "js": "JavaScript",
+    "plpgsql": "PL/pgSQL",
+    "pl": "Perl",
+    "java": "Java",
+    "go": "Go",
+    "json": "IR",
 }
 
-def process_model(model: JsonModel, *,
-                  check: bool = True, merge: bool = True, optimize: bool = True,
-                  debug: int = 0):
+
+def process_model(
+    model: JsonModel,
+    *,
+    check: bool = True,
+    merge: bool = True,
+    optimize: bool = True,
+    debug: int = 0,
+):
     """Apply necessary preprocessing to JsonModel."""
 
     # initial sanity check
@@ -76,21 +84,32 @@ def process_model(model: JsonModel, *,
 
 
 def model_from_json(
-        mjson: Jsonable, *, auto: bool = False,
-        debug: int = 0, murl: str = "",
-        check: bool = True, merge: bool = True, optimize: bool = True,
-        loose_int: bool|None = None, loose_float: bool|None = None,
-        resolver: Resolver|None = None) -> JsonModel:
+    mjson: Jsonable,
+    *,
+    auto: bool = False,
+    debug: int = 0,
+    murl: str = "",
+    check: bool = True,
+    merge: bool = True,
+    optimize: bool = True,
+    loose_int: bool | None = None,
+    loose_float: bool | None = None,
+    resolver: Resolver | None = None,
+) -> JsonModel:
     """JsonModel instanciation from JSON data."""
 
     if resolver is None:
         resolver = Resolver()
 
     # possibly add resolver mapping rule
-    if auto and (isinstance(mjson, dict) and "$" in mjson and \
-            isinstance(mjson["$"], dict) and "" in mjson["$"]):
+    if auto and (
+        isinstance(mjson, dict)
+        and "$" in mjson
+        and isinstance(mjson["$"], dict)
+        and "" in mjson["$"]
+    ):
         url = mjson["$"][""]
-        assert isinstance(url, str), ".\"$\"." f" expects a string: {tname(url)}"
+        assert isinstance(url, str), f'."$". expects a string: {tname(url)}'
         fn = re.sub(r"(\.model)?(\.js(on)?|\.yaml)?$", "", murl)  # drop suffix
         if debug:
             log.debug(f"url={url} fn={fn}")
@@ -102,8 +121,9 @@ def model_from_json(
                 log.info(f"auto adding url map: {upref} -> {fpref}")
                 resolver._maps[upref] = fpref
 
-    jm = JsonModel(mjson, resolver, url=murl, debug=debug,
-                   loose_int=loose_int, loose_float=loose_float)
+    jm = JsonModel(
+        mjson, resolver, url=murl, debug=debug, loose_int=loose_int, loose_float=loose_float
+    )
 
     if check or merge or optimize:
         process_model(jm, check=check, merge=merge, optimize=optimize, debug=debug)
@@ -111,10 +131,19 @@ def model_from_json(
     return jm
 
 
-def model_from_url(murl: str, *, auto: bool = False, debug: int = 0,
-                   check: bool = True, merge: bool = True, optimize: bool = True,
-                   loose_int: bool|None = None, loose_float: bool|None = None,
-                   resolver: Resolver|None = None, follow: bool = True) -> JsonModel:
+def model_from_url(
+    murl: str,
+    *,
+    auto: bool = False,
+    debug: int = 0,
+    check: bool = True,
+    merge: bool = True,
+    optimize: bool = True,
+    loose_int: bool | None = None,
+    loose_float: bool | None = None,
+    resolver: Resolver | None = None,
+    follow: bool = True,
+) -> JsonModel:
     """JsonModel instanciation from a URL."""
 
     if resolver is None:
@@ -122,21 +151,46 @@ def model_from_url(murl: str, *, auto: bool = False, debug: int = 0,
 
     mjson = resolver(murl, follow=follow)
 
-    return model_from_json(mjson, murl=murl, auto=auto, debug=debug, resolver=resolver,
-                           loose_int=loose_int, loose_float=loose_float,
-                           check=check, merge=merge, optimize=optimize)
+    return model_from_json(
+        mjson,
+        murl=murl,
+        auto=auto,
+        debug=debug,
+        resolver=resolver,
+        loose_int=loose_int,
+        loose_float=loose_float,
+        check=check,
+        merge=merge,
+        optimize=optimize,
+    )
 
 
-def model_from_str(mstring: str, *, auto: bool = False,
-                   check: bool = True, merge: bool = True, optimize: bool = True,
-                   loose_int: bool|None = None, loose_float: bool|None = None,
-                   debug: int = 0, murl: str = "", allow_duplicates: bool = False) -> JsonModel:
+def model_from_str(
+    mstring: str,
+    *,
+    auto: bool = False,
+    check: bool = True,
+    merge: bool = True,
+    optimize: bool = True,
+    loose_int: bool | None = None,
+    loose_float: bool | None = None,
+    debug: int = 0,
+    murl: str = "",
+    allow_duplicates: bool = False,
+) -> JsonModel:
     """JsonModel instanciation from a string."""
 
-    return model_from_json(json_loads(mstring, allow_duplicates=allow_duplicates),
-                           auto=auto, debug=debug, murl=murl,
-                           loose_int=loose_int, loose_float=loose_float,
-                           check=check, merge=merge, optimize=optimize)
+    return model_from_json(
+        json_loads(mstring, allow_duplicates=allow_duplicates),
+        auto=auto,
+        debug=debug,
+        murl=murl,
+        loose_int=loose_int,
+        loose_float=loose_float,
+        check=check,
+        merge=merge,
+        optimize=optimize,
+    )
 
 
 # it is unclear if this tricks actually works
@@ -155,42 +209,86 @@ def model_checker(jm: JsonModel, *, debug: bool = False) -> EntryCheckFun:
 
 
 def model_checker_from_json(
-            mjson: Jsonable, *, auto: bool = False, debug: int = 0,
-            resolver: Resolver|None = None,
-            loose_int: bool|None = None, loose_float: bool|None = None,
-        ) -> EntryCheckFun:
+    mjson: Jsonable,
+    *,
+    auto: bool = False,
+    debug: int = 0,
+    resolver: Resolver | None = None,
+    loose_int: bool | None = None,
+    loose_float: bool | None = None,
+) -> EntryCheckFun:
     """Return an executable model checker from a URL."""
-    jm = model_from_json(mjson, auto=auto, debug=debug, resolver=resolver,
-                         loose_int=loose_int, loose_float=loose_float)
+    jm = model_from_json(
+        mjson,
+        auto=auto,
+        debug=debug,
+        resolver=resolver,
+        loose_int=loose_int,
+        loose_float=loose_float,
+    )
     return model_checker(jm, debug=debug > 0)
 
 
 def model_checker_from_url(
-            murl: str, *, auto: bool = False, debug: int = 0,
-            resolver: Resolver|None = None, follow: bool = True,
-            loose_int: bool|None = None, loose_float: bool|None = None
-        ) -> EntryCheckFun:
+    murl: str,
+    *,
+    auto: bool = False,
+    debug: int = 0,
+    resolver: Resolver | None = None,
+    follow: bool = True,
+    loose_int: bool | None = None,
+    loose_float: bool | None = None,
+) -> EntryCheckFun:
     """Return an executable model checker from a URL."""
-    jm = model_from_url(murl, auto=auto, debug=debug, resolver=resolver, follow=follow,
-                        loose_int=loose_int, loose_float=loose_float)
+    jm = model_from_url(
+        murl,
+        auto=auto,
+        debug=debug,
+        resolver=resolver,
+        follow=follow,
+        loose_int=loose_int,
+        loose_float=loose_float,
+    )
     return model_checker(jm, debug=debug > 0)
 
 
-def create_model(murl: str, resolver: Resolver, *,
-                 auto: bool = False, follow: bool = True, debug: int = 0,
-                 check: bool = True, merge: bool = True, optimize: bool = True,
-                 loose_int: bool|None = None, loose_float: bool|None = None) -> JsonModel:
+def create_model(
+    murl: str,
+    resolver: Resolver,
+    *,
+    auto: bool = False,
+    follow: bool = True,
+    debug: int = 0,
+    check: bool = True,
+    merge: bool = True,
+    optimize: bool = True,
+    loose_int: bool | None = None,
+    loose_float: bool | None = None,
+) -> JsonModel:
     """JsonModel instanciation without preprocessing."""
-    return model_from_url(murl, auto=auto, follow=follow, debug=debug, resolver=resolver,
-                          loose_int=loose_int, loose_float=loose_float,
-                          check=check, merge=merge, optimize=optimize)
+    return model_from_url(
+        murl,
+        auto=auto,
+        follow=follow,
+        debug=debug,
+        resolver=resolver,
+        loose_int=loose_int,
+        loose_float=loose_float,
+        check=check,
+        merge=merge,
+        optimize=optimize,
+    )
+
 
 DEFAULT_CC = "cc"
-DEFAULT_CFLAGS = "-Wall -Wno-address -Wno-c23-extensions -Wno-unused-variable " \
+DEFAULT_CFLAGS = (
+    "-Wall -Wno-address -Wno-c23-extensions -Wno-unused-variable "
     "-Wno-unused-function -Wno-unused-but-set-variable -Wno-parentheses -Ofast"
+)
 DEFAULT_LDFLAGS_PCRE2 = "-ljansson -lpcre2-8 -lm"
 # pkgconf --libs cre2
 DEFAULT_LDFLAGS_CRE2 = "-L/usr/local/lib -ljansson -lcre2 -lpthread -lre2 -lm -lstdc++"
+
 
 def clang_compile(c_code: str, args):
     """Generate an actual executable or object file."""
@@ -207,14 +305,17 @@ def clang_compile(c_code: str, args):
     cc = args.cc or env("CC", DEFAULT_CC)
     cflags = args.cflags or env("CFLAGS", DEFAULT_CFLAGS)
     d_engine = "-DREGEX_ENGINE_PCRE2" if args.regex_engine == "pcre2" else "-DREGEX_ENGINE_RE2"
-    cppflags = args.cppflags or \
-        f"-I{rt_dir}/c -I/usr/local/linclude -DCHECK_FUNCTION_NAME=check_model {d_engine}"
+    cppflags = (
+        args.cppflags
+        or f"-I{rt_dir}/c -I/usr/local/linclude -DCHECK_FUNCTION_NAME=check_model {d_engine}"
+    )
     if args.define:
         cppflags = " ".join(f"-D{d}" for d in args.define) + " " + cppflags
     if args.include:
         cppflags = " ".join(f"-I{i}" for i in args.include) + " " + cppflags
-    ldflags = args.ldflags or \
-        (DEFAULT_LDFLAGS_PCRE2 if args.regex_engine == "pcre2" else DEFAULT_LDFLAGS_CRE2)
+    ldflags = args.ldflags or (
+        DEFAULT_LDFLAGS_PCRE2 if args.regex_engine == "pcre2" else DEFAULT_LDFLAGS_CRE2
+    )
     if args.library:
         ldflags = " -L".join([""] + args.library) + " " + ldflags
     if args.static:
@@ -233,6 +334,7 @@ def clang_compile(c_code: str, args):
             log.info(f"C compilation: {command}")
         status = os.system(command)
         assert status == 0, f"C compilation succeeded: {command}"
+
 
 def java_compile(java_code: str, args):
     """Compile java source."""
@@ -256,15 +358,15 @@ def java_compile(java_code: str, args):
     java_file.unlink()
     assert status == 0, f"Java compilation succeeded: {command}"
 
-def jmc_script():
 
+def jmc_script():
     import argparse
 
     logging.basicConfig()
 
     if "JMC_OPTS" in os.environ:
         # FIXME spaces/quotes are not managed correctly
-        sys.argv = [ sys.argv[0] ] + os.environ["JMC_OPTS"].split(" ") + sys.argv[1:]
+        sys.argv = [sys.argv[0]] + os.environ["JMC_OPTS"].split(" ") + sys.argv[1:]
         log.warning(f"inserting options from JMC_OPTS environment variable: {sys.argv}")
 
     ap = argparse.ArgumentParser(
@@ -272,13 +374,17 @@ def jmc_script():
         description="""JSON Model is a compact and intuitive JSON syntax to describe JSON data
             structures. This JSON Model Compiler command allows to derive codes or schemas from
             a model. See https://github.com/clairey-zx81/json-model for details.""",
-        epilog="This code is Public Domain."
+        epilog="This code is Public Domain.",
     )
     arg = ap.add_argument
 
     # documentation
-    arg("--doc", choices=["pod", "syn", "help", "man"], default=None,
-        help="show documentation and exit")
+    arg(
+        "--doc",
+        choices=["pod", "syn", "help", "man"],
+        default=None,
+        help="show documentation and exit",
+    )
     arg("--man", dest="doc", action="store_const", const="man", help="show man page")
 
     # verbosity and checks
@@ -288,58 +394,127 @@ def jmc_script():
     arg("--quiet", "-q", dest="verbose", action="store_false", help="less verbose")
 
     # input options about JM
-    arg("--allow-duplicates", "-ad", action="store_true", default=False,
-        help="allow duplicated properties in parsed model, probably a bad idea.""")
+    arg(
+        "--allow-duplicates",
+        "-ad",
+        action="store_true",
+        default=False,
+        help="allow duplicated properties in parsed model, probably a bad idea.",
+    )
     arg("--maps", "-m", action="append", default=[], help="URL mappings")
     arg("--auto", "-a", action="store_true", help="automatic URL mapping")
 
-    arg("--loose-int", "-li", action="store_true", default=None,
-        help="use loose integers")
-    arg("--strict-int", "-si", dest="loose_int", action="store_false", default=None,
-        help="use strict integers (default)")
-    arg("--loose-float", "-lf", action="store_true", default=None,
-        help="use loose floats")
-    arg("--strict-float", "-sf", dest="loose_float", action="store_false",
-        help="use strict floats (default)")
-    arg("--loose-number", "--loose", "-ln", action="store_true", default=None,
-        help="use loose integer and float numbers")
-    arg("--strict-number", "--strict", "-sn", dest="loose_number", action="store_false",
-        help="use strict integer and float numbers (default)")
+    arg("--loose-int", "-li", action="store_true", default=None, help="use loose integers")
+    arg(
+        "--strict-int",
+        "-si",
+        dest="loose_int",
+        action="store_false",
+        default=None,
+        help="use strict integers (default)",
+    )
+    arg("--loose-float", "-lf", action="store_true", default=None, help="use loose floats")
+    arg(
+        "--strict-float",
+        "-sf",
+        dest="loose_float",
+        action="store_false",
+        help="use strict floats (default)",
+    )
+    arg(
+        "--loose-number",
+        "--loose",
+        "-ln",
+        action="store_true",
+        default=None,
+        help="use loose integer and float numbers",
+    )
+    arg(
+        "--strict-number",
+        "--strict",
+        "-sn",
+        dest="loose_number",
+        action="store_false",
+        help="use strict integer and float numbers (default)",
+    )
 
     # (code) output options
     arg("--output", "-o", default="-", help="output file")
     arg("--package", "-p", default=None, help="generated module name, if appropriate")
     arg("--entry", "-e", help="name prefix of generated functions")
-    arg("--regex-engine", "-re", default=None, choices=["re", "re2", "pcre2"],
-        help="select regular expression engine (default depends on target language)")
+    arg(
+        "--regex-engine",
+        "-re",
+        default=None,
+        choices=["re", "re2", "pcre2"],
+        help="select regular expression engine (default depends on target language)",
+    )
     arg("--sort", "-s", action="store_true", default=False, help="sorted JSON keys")
     arg("--no-sort", "-ns", dest="sort", action="store_false", help="unsorted JSON keys")
     arg("--indent", "-i", type=int, default=2, help="JSON indentation")
-    arg("--reporting", action="store_true", default=None,
-        help="add reporting capabilities (default)")
-    arg("--no-reporting", dest="reporting", action="store_false",
-        help="remove reporting capabilities")
-    arg("--short-version", action="store_true", default=False,
-        help="generate a short version in output code")
-    arg("--predef", action="store_true", default=True,
-        help="enable predef content checks, the default")
-    arg("--no-predef", dest="predef", action="store_false",
-        help="disable predef content checks")
+    arg(
+        "--reporting",
+        action="store_true",
+        default=None,
+        help="add reporting capabilities (default)",
+    )
+    arg(
+        "--no-reporting",
+        dest="reporting",
+        action="store_false",
+        help="remove reporting capabilities",
+    )
+    arg(
+        "--short-version",
+        action="store_true",
+        default=False,
+        help="generate a short version in output code",
+    )
+    arg(
+        "--predef",
+        action="store_true",
+        default=True,
+        help="enable predef content checks, the default",
+    )
+    arg("--no-predef", dest="predef", action="store_false", help="disable predef content checks")
 
     generate = ap.add_mutually_exclusive_group()
     gen = generate.add_argument
-    gen("--generate", "--gen", dest="gen", choices=["exec", "module", "source", "none"],
-        help="select what to generate")
-    gen("--exec", "--executable", dest="gen", action="store_const", const="exec", default=None,
-        help="generate an executable")
+    gen(
+        "--generate",
+        "--gen",
+        dest="gen",
+        choices=["exec", "module", "source", "none"],
+        help="select what to generate",
+    )
+    gen(
+        "--exec",
+        "--executable",
+        dest="gen",
+        action="store_const",
+        const="exec",
+        default=None,
+        help="generate an executable",
+    )
     gen("--module", dest="gen", action="store_const", const="module", help="generate a module")
     gen("--code", dest="gen", action="store_const", const="code", help="generate source code")
-    gen("--no-gen", "-ng", dest="gen", action="store_const", const="none",
-        help="do not generate anything")
+    gen(
+        "--no-gen",
+        "-ng",
+        dest="gen",
+        action="store_const",
+        const="none",
+        help="do not generate anything",
+    )
 
     # TODO cpp ts rs go…
-    arg("--format", "-F", choices=["json", "yaml", "py", "c", "js", "plpgsql", "pl", "java"],
-        default=None, help="output language")
+    arg(
+        "--format",
+        "-F",
+        choices=["json", "yaml", "py", "c", "js", "plpgsql", "pl", "java"],
+        default=None,
+        help="output language",
+    )
 
     # C-specific options
     arg("--cc", type=str, help="override default C language compiler")
@@ -358,20 +533,48 @@ def jmc_script():
     arg("--jflags", type=str, help="add Java compiler flags")
 
     # testing mode, expected results on values
-    arg("--name", "-n", default="", help="name of validation submodel, default is \"\" (root)")
-    arg("--none", dest="expect", action="store_const", const=None, default=None,
-        help="no test expectations")
-    arg("--true", "-t", dest="expect", action="store_const", const=True,
-        help="test values for true")
-    arg("--false", "-f", dest="expect", action="store_const", const=False,
-        help="test values for false")
-    arg("--test-vector", "-tv", action="store_true", default=False,
-        help="read values from a test vector file")
-    arg("--jsonl", "-j", action="store_true", default=False,
-        help="accept value file in JSONL format")
+    arg("--name", "-n", default="", help='name of validation submodel, default is "" (root)')
+    arg(
+        "--none",
+        dest="expect",
+        action="store_const",
+        const=None,
+        default=None,
+        help="no test expectations",
+    )
+    arg(
+        "--true", "-t", dest="expect", action="store_const", const=True, help="test values for true"
+    )
+    arg(
+        "--false",
+        "-f",
+        dest="expect",
+        action="store_const",
+        const=False,
+        help="test values for false",
+    )
+    arg(
+        "--test-vector",
+        "-tv",
+        action="store_true",
+        default=False,
+        help="read values from a test vector file",
+    )
+    arg(
+        "--jsonl",
+        "-j",
+        action="store_true",
+        default=False,
+        help="accept value file in JSONL format",
+    )
     arg("--report", "-r", action="store_true", default=False, help="report reasons on fail")
-    arg("--no-report", "-nr", dest="report", action="store_false",
-        help="fast mode, do not give reasons")
+    arg(
+        "--no-report",
+        "-nr",
+        dest="report",
+        action="store_false",
+        help="fast mode, do not give reasons",
+    )
 
     # operations on model
     arg("--check", "-c", action="store_true", default=False, help="check model validity")
@@ -380,66 +583,126 @@ def jmc_script():
 
     # code generation settings
     # TODO add option for smaller vs faster code?
-    arg("--map-threshold", "-mt", default=None, type=int,
-        help="property map vs unrolling threshold, target-dependent default, 0 to force map")
-    arg("--map-share", "-ms", default=False, action="store_true",
-        help="property map sharing")
-    arg("--no-map-share", "-nms", dest="map_share", action="store_false",
-        help="no property map sharing")
-    arg("--may-must-open-threshold", "-mmot", default=None, type=int,
-        help="mmo scheme if number of optional props below threshold, target-dependent default")
-    arg("--must-only-threshold", "-mot", default=None, type=int,
+    arg(
+        "--map-threshold",
+        "-mt",
+        default=None,
+        type=int,
+        help="property map vs unrolling threshold, target-dependent default, 0 to force map",
+    )
+    arg("--map-share", "-ms", default=False, action="store_true", help="property map sharing")
+    arg(
+        "--no-map-share",
+        "-nms",
+        dest="map_share",
+        action="store_false",
+        help="no property map sharing",
+    )
+    arg(
+        "--may-must-open-threshold",
+        "-mmot",
+        default=None,
+        type=int,
+        help="mmo scheme if number of optional props below threshold, target-dependent default",
+    )
+    arg(
+        "--must-only-threshold",
+        "-mot",
+        default=None,
+        type=int,
         help="must-only scheme if number of mandatory props below threshold,"
-             " target-dependent default, 0 to disable")
-    arg("--partition-threshold", "-pt", default=None, type=int,
-        help="threshold to trigger unrolled string search partitioning")
-    arg("--or-must-prop", "-omp", default=None, type=int,
+        " target-dependent default, 0 to disable",
+    )
+    arg(
+        "--partition-threshold",
+        "-pt",
+        default=None,
+        type=int,
+        help="threshold to trigger unrolled string search partitioning",
+    )
+    arg(
+        "--or-must-prop",
+        "-omp",
+        default=None,
+        type=int,
         help="or length threshold for mandatory property discrimination,"
-             " target-dependent default, 0 to disable")
-    arg("--sort-must", "-smu", default=True, action="store_true",
-        help="sort must props (default)")
-    arg("--no-sort-must", "-nsmu", action="store_false",
-        help="do not sort must props")
-    arg("--sort-may", "-sma", default=True, action="store_true",
-        help="sort may props (default)")
-    arg("--no-sort-may", "-nsma", action="store_false",
-        help="do not sort may props")
-    arg("--strcmp-optimize", "-scO", dest="strcmp_opt", default=True, action="store_true",
-        help="optimize some string comparisons")
-    arg("--max-strcmp-cset", default=512, type=int,  # actual cutoff about 2300 on tests
-        help="max size for str cset expression")
-    arg("--no-strcmp-optimize", "-nscO", dest="strcmp_opt", action="store_false",
-        help="do not optimize string comparisons")
+        " target-dependent default, 0 to disable",
+    )
+    arg("--sort-must", "-smu", default=True, action="store_true", help="sort must props (default)")
+    arg("--no-sort-must", "-nsmu", action="store_false", help="do not sort must props")
+    arg("--sort-may", "-sma", default=True, action="store_true", help="sort may props (default)")
+    arg("--no-sort-may", "-nsma", action="store_false", help="do not sort may props")
+    arg(
+        "--strcmp-optimize",
+        "-scO",
+        dest="strcmp_opt",
+        default=True,
+        action="store_true",
+        help="optimize some string comparisons",
+    )
+    arg(
+        "--max-strcmp-cset",
+        default=512,
+        type=int,  # actual cutoff about 2300 on tests
+        help="max size for str cset expression",
+    )
+    arg(
+        "--no-strcmp-optimize",
+        "-nscO",
+        dest="strcmp_opt",
+        action="store_false",
+        help="do not optimize string comparisons",
+    )
     arg("--byte-order", choices=["le", "be", "dpd"], default="le", help="set endian-ness")
 
     # IR optimizations (if simplification, call skipping?)
-    arg("--ir-optimize", "-Oir", dest="ir_optimize", action="store_true", default=True,
-        help="enable IR optimizations")
-    arg("--no-ir-optimize", "-nOir", dest="ir_optimize", action="store_false",
-        help="disable IR optimizations")
+    arg(
+        "--ir-optimize",
+        "-Oir",
+        dest="ir_optimize",
+        action="store_true",
+        default=True,
+        help="enable IR optimizations",
+    )
+    arg(
+        "--no-ir-optimize",
+        "-nOir",
+        dest="ir_optimize",
+        action="store_false",
+        help="disable IR optimizations",
+    )
 
     operation = ap.add_mutually_exclusive_group()
     ope = operation.add_argument
-    ope("--op", choices=["P", "U", "J", "N", "E", "C"], default=None,
-        help="select operation")
-    ope("--preproc", "-P", dest="op", action="store_const", const="P",
-        help="preprocess model")
-    ope("--dump", "-U", dest="op", action="store_const", const="U",
-        help="dump all models")
-    ope("--jdump", "-J", dest="op", action="store_const", const="J",
-        help="dump json IR")
-    ope("--nope", "-N", dest="op", action="store_const", const="N",
-        help="dump (retrieved) seldom processed json model input")
-    ope("--export", "-E", dest="op", action="store_const", const="E",
-        help="export as JSON Schema")
-    ope("--compile", "-C", dest="op", action="store_const", const="C",
-        help="code generation")
+    ope("--op", choices=["P", "U", "J", "N", "E", "C"], default=None, help="select operation")
+    ope("--preproc", "-P", dest="op", action="store_const", const="P", help="preprocess model")
+    ope("--dump", "-U", dest="op", action="store_const", const="U", help="dump all models")
+    ope("--jdump", "-J", dest="op", action="store_const", const="J", help="dump json IR")
+    ope(
+        "--nope",
+        "-N",
+        dest="op",
+        action="store_const",
+        const="N",
+        help="dump (retrieved) seldom processed json model input",
+    )
+    ope("--export", "-E", dest="op", action="store_const", const="E", help="export as JSON Schema")
+    ope("--compile", "-C", dest="op", action="store_const", const="C", help="code generation")
 
     # export control
-    arg("--schema-version", "--sv", action="store_true", default=None,
-        help="force include JSON Schema version on export")
-    arg("--no-schema-version", "--nsv", action="store_false",
-        help="do not include JSON Schema version on export")
+    arg(
+        "--schema-version",
+        "--sv",
+        action="store_true",
+        default=None,
+        help="force include JSON Schema version on export",
+    )
+    arg(
+        "--no-schema-version",
+        "--nsv",
+        action="store_false",
+        help="do not include JSON Schema version on export",
+    )
 
     # url cache management
     arg("--cache-dir", default=None, help="set cache directory")
@@ -447,7 +710,7 @@ def jmc_script():
     arg("--cache-clear", default=False, action="store_true", help="cleanup cache contents and exit")
 
     # parameters
-    arg("model", default="-", nargs="?", help="JSON model source (file or url or \"-\" for stdin)")
+    arg("model", default="-", nargs="?", help='JSON model source (file or url or "-" for stdin)')
     arg("values", nargs="*", help="JSON values to testing")
     args = ap.parse_args()
 
@@ -578,7 +841,9 @@ def jmc_script():
         log.error(f"Testing JSON values requires -C for Python: {args.op} {args.format}")
         sys.exit(1)
     if args.gen == "source" and (args.op != "C" or args.format not in LANG):
-        log.error(f"Showing code requires -C for C, Java, JavaScript, Perl, Python and PL/pgSQL: {args.op} {args.format}")
+        log.error(
+            f"Showing code requires -C for C, Java, JavaScript, Perl, Python and PL/pgSQL: {args.op} {args.format}"
+        )
         sys.exit(1)
 
     # strict/loose numbers
@@ -603,8 +868,9 @@ def jmc_script():
         assert " " in m, f"valid map require a space: {m}"
         k, v = m.split(" ", 1)
         maps[k] = v
-    resolver = Resolver(args.cache_dir, maps, allow_duplicates=args.allow_duplicates,
-                        cache_ignore=args.cache_ignore)
+    resolver = Resolver(
+        args.cache_dir, maps, allow_duplicates=args.allow_duplicates, cache_ignore=args.cache_ignore
+    )
     if args.cache_clear:
         resolver.clear()
         sys.exit(0)
@@ -613,10 +879,18 @@ def jmc_script():
 
     # CREATE FROM FILE OR URL
     try:
-        model = create_model(args.model, resolver, auto=args.auto, debug=args.debug,
-                             loose_int=args.loose_int, loose_float=args.loose_float,
-                             check=args.check, merge=args.op != "N",
-                             optimize=args.optimize, follow=False)
+        model = create_model(
+            args.model,
+            resolver,
+            auto=args.auto,
+            debug=args.debug,
+            loose_int=args.loose_int,
+            loose_float=args.loose_float,
+            check=args.check,
+            merge=args.op != "N",
+            optimize=args.optimize,
+            follow=False,
+        )
     except BaseException as e:
         log.error(e)
         if args.debug:
@@ -667,23 +941,37 @@ def jmc_script():
         assert args.format in LANG, f"valid output language {args.format}"
 
         # FIXME PL/pgSQL?
-        if args.format in ("plpgsql", "js", "pl") and \
-                (not model._loose_int or not model._loose_float):
-            log.warning(f"{args.model}: {LANG[args.format]} backend does not support strict numbers")
+        if args.format in ("plpgsql", "js", "pl") and (
+            not model._loose_int or not model._loose_float
+        ):
+            log.warning(
+                f"{args.model}: {LANG[args.format]} backend does not support strict numbers"
+            )
 
         # compile to source
         code = xstatic_compile(
-            model, args.entry, lang=args.format, execute=with_main,
-            map_threshold=args.map_threshold, map_share=args.map_share,
-            debug=args.debug, report=args.reporting, relib=args.regex_engine,
-            short_version=args.short_version, package=args.package,
-            predef=args.predef, inline=args.inline, ir_optimize=args.ir_optimize,
-            strcmp=args.strcmp_opt, byte_order=args.byte_order,
+            model,
+            args.entry,
+            lang=args.format,
+            execute=with_main,
+            map_threshold=args.map_threshold,
+            map_share=args.map_share,
+            debug=args.debug,
+            report=args.reporting,
+            relib=args.regex_engine,
+            short_version=args.short_version,
+            package=args.package,
+            predef=args.predef,
+            inline=args.inline,
+            ir_optimize=args.ir_optimize,
+            strcmp=args.strcmp_opt,
+            byte_order=args.byte_order,
             may_must_open_threshold=args.may_must_open_threshold,
             must_only_threshold=args.must_only_threshold,
             partition_threshold=args.partition_threshold,
             or_must_prop=args.or_must_prop,
-            sort_must=args.sort_must, sort_may=args.sort_may,
+            sort_must=args.sort_must,
+            sort_may=args.sort_may,
             max_strcmp_cset=args.max_strcmp_cset,
         )
         source = str(code)
@@ -729,7 +1017,9 @@ def jmc_script():
     else:
         raise Exception(f"operation not implemented yet: {args.op}")
 
-    def _process(checker, model: str, value: Jsonable, fid: str, expect: bool|None, output) -> bool:
+    def _process(
+        checker, model: str, value: Jsonable, fid: str, expect: bool | None, output
+    ) -> bool:
         """Process a value and report to output depending on args, return if as expected."""
         reasons = [] if args.report else None
         okay = checker(value, model, reasons)
@@ -757,15 +1047,16 @@ def jmc_script():
                 # parse JSON
                 if args.jsonl:
                     lines = contents.split("\n")[:-1]
-                    value = [ [ None, json_loads(line, allow_duplicates=args.allow_duplicates) ]
-                                for line in lines ]
+                    value = [
+                        [None, json_loads(line, allow_duplicates=args.allow_duplicates)]
+                        for line in lines
+                    ]
                 else:
                     value = json_loads(contents, allow_duplicates=args.allow_duplicates)
                 # process values
                 if args.test_vector or args.jsonl:
                     assert isinstance(value, list), "array test vector"
                     for idx, test in enumerate(value):
-
                         assert isinstance(test, list) and len(test) in (2, 3), "2 or 3 tuple test"
 
                         if len(test) == 2:

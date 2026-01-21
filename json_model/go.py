@@ -1,3 +1,5 @@
+import json
+
 from .language import (
     Block,
     BoolExpr,
@@ -68,45 +70,42 @@ class Go(Language):
         return f"{var} == nil"
 
     def is_bool(self, var: Var) -> BoolExpr:
-        return f"isBool({var})"
+        return f"IsBool({var})"
 
     def is_int(self, var: Var) -> BoolExpr:
-        return f"isInt({var})"
+        return f"IsInteger({var})"
 
     def is_float(self, var: Var) -> BoolExpr:
-        return f"isFloat({var})"
+        return f"IsNumber({var})"
 
     def is_str(self, var: Var) -> BoolExpr:
-        return f"isString({var})"
+        return f"IsString({var})"
 
     def is_list(self, var: Var) -> BoolExpr:
-        return f"isArray({var})"
+        return f"IsArray({var})"
 
     def is_obj(self, var: Var) -> BoolExpr:
-        return f"isObject({var})"
+        return f"IsObject({var})"
 
     # --- Type Conversions (Helpers expected in runtime) ---
 
     def to_bool(self, var: Var) -> BoolExpr:
-        return f"{var}.(bool)"
+        return f"AsBool({var})"
 
     def to_int(self, var: Var) -> IntExpr:
-        # Assuming helper handles float64 -> int conversion safety if needed
-        return f"asInt({var})"
+        return f"AsInt({var})"
 
     def to_float(self, var: Var) -> Expr:
-        return f"asFloat({var})"
+        return f"AsFloat({var})"
 
     def to_str(self, var: Var) -> StrExpr:
-        return f"{var}.(string)"
+        return f"AsString({var})"
 
     def to_list(self, var: Var) -> Expr:
-        # Returns []interface{}
-        return f"asArray({var})"
+        return f"AsArray({var})"
 
     def to_obj(self, var: Var) -> Expr:
-        # Returns map[string]interface{}
-        return f"asObject({var})"
+        return f"AsObject({var})"
 
     # --- Structure ---
 
@@ -157,8 +156,7 @@ class Go(Language):
     # --- Collections (Maps/Sets for constants) ---
 
     def def_cset(self, name: str, constants: ConstList) -> Block:
-        # Define a map[type]bool for O(1) lookup, or switch case in simple scenarios
-        # Using map[interface{}]bool for mixed types
+        # Define a map[type]bool for O(1) lookup.
         return (
             [f"var {name}_set = map[interface{{}}]bool{{"]
             + [f"    {self.json_cst(c)}: true," for c in constants]
@@ -167,6 +165,26 @@ class Go(Language):
 
     def in_cset(self, name: str, var: Var, constants: ConstList) -> BoolExpr:
         return f"{name}_set[{var}]"
+
+    # --- Constant Maps (Used for property optimization) ---
+
+    def def_cmap(self, name: str, mapping: dict[JsonScalar, str]) -> Block:
+        # A map from constant values (usually property names) to check functions.
+        # In Go: map[interface{}]func(any, *Path, *Report) bool
+        return (
+            [f"var {name} = map[interface{{}}]func(interface{{}}, *Path, *Report) bool{{"]
+            + [f"    {self.json_cst(k)}: {v}," for k, v in mapping.items()]
+            + ["}"]
+        )
+
+    def get_cmap(self, name: str, tag: Var, ttag: type) -> Expr:
+        return f"{name}[{tag}]"
+
+    def ini_cmap(self, name: str, mapping: dict[JsonScalar, str]) -> Block:
+        return []
+
+    def del_cmap(self, name: str, mapping: dict[JsonScalar, str]) -> Block:
+        return []
 
     # --- Utilities ---
 
@@ -180,5 +198,5 @@ class Go(Language):
         if isinstance(c, bool):
             return "true" if c else "false"
         if isinstance(c, str):
-            return f'"{c}"'  # Simple escaping, might need more robust function
+            return json.dumps(c)  # Handles escaping quotes, newlines, etc.
         return str(c)
