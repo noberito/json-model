@@ -38,7 +38,7 @@ func TestReport(t *testing.T) {
 
 	// Simulate an error at $.age
 	p := &Path{Parent: nil, Name: "age", Index: -1}
-	r.AddError("must be positive", p)
+	r.Add("must be positive", p)
 
 	if !r.HasErrors() {
 		t.Error("report should have errors after adding one")

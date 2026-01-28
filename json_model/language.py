@@ -1,27 +1,28 @@
 import re
-from .mtypes import Jsonable, JsonScalar, Number, TestHint, Conditionals
-from .utils import log, __version__, load_data_file
+
+from .mtypes import Conditionals, Jsonable, JsonScalar, Number, TestHint
+from .utils import __version__, load_data_file, log
 
 # name
 type Var = str
 
 # typed expressions
 type JsonExpr = str
-type BoolExpr = str|bool
-type IntExpr = str|int
+type BoolExpr = str | bool
+type IntExpr = str | int
 type FloatExpr = str
-type NumExpr = str|int
+type NumExpr = str | int
 type StrExpr = str
-type PathExpr = Var|str
+type PathExpr = Var | str
 # all value expressions
-type Expr = JsonExpr|BoolExpr|IntExpr|FloatExpr|NumExpr|StrExpr
+type Expr = JsonExpr | BoolExpr | IntExpr | FloatExpr | NumExpr | StrExpr
 
 # actual code
 type Block = list[str]
 
 # must or may property name -> corresponding check function
 type PropMap = dict[str, str]
-type ConstList = list[None|bool|int|float|str]
+type ConstList = list[None | bool | int | float | str]
 type ConstMap = dict[JsonScalar, str]
 type RegMap = dict[str, str]
 
@@ -33,26 +34,48 @@ class Language:
     TODO move non generic methods to Python, to avoid generating python if unimplemented
     """
 
-    def __init__(self,
-            name: str, *,
-            debug: bool = False,
-            short_version: bool = False,
-            # operators, separators, types…
-            eq: str = "==", ne: str = "!=",
-            ge: str = ">=", gt: str = ">", le: str = "<=", lt: str = "<",
-            not_op: str = "not", and_op: str = "and", or_op: str = "or",
-            eoi: str = "", isep: str = "\n", indent: str = "    ",
-            lcom: str = "#", relib: str = "re2",
-            true: str = "True", false: str = "False", null: str = "None",
-            check_t: str = "CheckFun", json_t: str = "Jsonable", path_t: str = "Path",
-            match_t: str|None = None, hash_t: str = "int",
-            float_t: str = "float", int_t: str = "int", bool_t: str = "bool", str_t: str = "str",
-            # options
-            with_path: bool = True, with_report: bool = True, with_package: bool = False,
-            with_predef: bool = True, with_comment: bool = True, with_hints: bool = True,
-            set_caps: tuple[type] = (str,),
-        ):
-
+    def __init__(
+        self,
+        name: str,
+        *,
+        debug: bool = False,
+        short_version: bool = False,
+        # operators, separators, types…
+        eq: str = "==",
+        ne: str = "!=",
+        ge: str = ">=",
+        gt: str = ">",
+        le: str = "<=",
+        lt: str = "<",
+        not_op: str = "not",
+        and_op: str = "and",
+        or_op: str = "or",
+        eoi: str = "",
+        isep: str = "\n",
+        indent: str = "    ",
+        lcom: str = "#",
+        relib: str = "re2",
+        true: str = "True",
+        false: str = "False",
+        null: str = "None",
+        check_t: str = "CheckFun",
+        json_t: str = "Jsonable",
+        path_t: str = "Path",
+        match_t: str | None = None,
+        hash_t: str = "int",
+        float_t: str = "float",
+        int_t: str = "int",
+        bool_t: str = "bool",
+        str_t: str = "str",
+        # options
+        with_path: bool = True,
+        with_report: bool = True,
+        with_package: bool = False,
+        with_predef: bool = True,
+        with_comment: bool = True,
+        with_hints: bool = True,
+        set_caps: tuple[type] = (str,),
+    ):
         # parameter consistency
         if with_path and not with_report:
             log.warning("path collection but no reporting, removing path")
@@ -103,10 +126,10 @@ class Language:
         # other stuff
         self._version = __version__
         self._idcounts: dict[str, int] = {}  # per-prefix ident count for unicity
-        self._re_used: bool = False          # whether regular expressions are used
-        self._byte_order: str = "le"         # just in case
+        self._re_used: bool = False  # whether regular expressions are used
+        self._byte_order: str = "le"  # just in case
 
-        self.set_caps = tuple(set_caps)      # constant types in a set
+        self.set_caps = tuple(set_caps)  # constant types in a set
         self.reindent = False
 
     def version(self) -> str:
@@ -123,8 +146,11 @@ class Language:
 
     def is_a_var(self, expr: Expr) -> bool:
         """Return whether expression is just a variable name."""
-        return (expr != self._null and isinstance(expr, str) and
-                re.search(r"^[_a-zA-Z]\w+$", expr) is not None)  # type: ignore
+        return (
+            expr != self._null
+            and isinstance(expr, str)
+            and re.search(r"^[_a-zA-Z]\w+$", expr) is not None
+        )  # type: ignore
 
     #
     # SOURCE FILE MANAGEMENT
@@ -143,16 +169,16 @@ class Language:
         body = self.indent(self.indent(block, False), False)
         bidx = code.index("CODE_BLOCK")
         assert bidx >= 0, "CODE_BLOCK marker found in file"
-        code = code[:bidx] + body + code[bidx+1:]
+        code = code[:bidx] + body + code[bidx + 1 :]
         return code
 
     def file_header(self, exe: bool = True) -> Block:
         """File header."""
         return (
-            self.lcom() +
-            self.lcom(f"Generated by JSON Model Compiler version {self.version()}") +
-            self.lcom("see https://github.com/clairey-zx81/json-model") +
             self.lcom()
+            + self.lcom(f"Generated by JSON Model Compiler version {self.version()}")
+            + self.lcom("see https://github.com/clairey-zx81/json-model")
+            + self.lcom()
         )
 
     def file_footer(self, exe: bool = True) -> Block:
@@ -174,14 +200,24 @@ class Language:
         """Is JSON variable a scalar?"""
         raise NotImplementedError("is_scalar")
 
-    def is_a(self, var: Var, tval: type|None, loose: bool|None = None) -> BoolExpr:
+    def is_a(self, var: Var, tval: type | None, loose: bool | None = None) -> BoolExpr:
         """Is JSON variable of this type?"""
         raise NotImplementedError("is_a")
 
     def str_content_predef(self, name: str) -> bool:
         """Predef (probably costly) about string contents."""
-        return name in ("$DATE", "$TIME", "$DATETIME",
-            "$URL", "$REGEX", "$EXREG", "$UUID", "$URI", "$EMAIL", "$JSON")
+        return name in (
+            "$DATE",
+            "$TIME",
+            "$DATETIME",
+            "$URL",
+            "$REGEX",
+            "$EXREG",
+            "$UUID",
+            "$URI",
+            "$EMAIL",
+            "$JSON",
+        )
 
     #
     # predefs
@@ -192,9 +228,21 @@ class Language:
         """Compile a predef."""
         # shortcut if the variable value is known to be a string
         if is_str:
-            if name in { "$NULL", "$BOOL", "$BOOLEAN",
-                         "$INT", "$INTEGER", "$I32", "$I64", "$U32", "$U64",
-                         "$FLOAT", "$F32", "$F64", "$NUMBER" }:
+            if name in {
+                "$NULL",
+                "$BOOL",
+                "$BOOLEAN",
+                "$INT",
+                "$INTEGER",
+                "$I32",
+                "$I64",
+                "$U32",
+                "$U64",
+                "$FLOAT",
+                "$F32",
+                "$F64",
+                "$NUMBER",
+            }:
                 name = "$NONE"
             elif name == "$STRING":
                 name = "$ANY"
@@ -210,8 +258,9 @@ class Language:
         elif name in ("$INT", "$INTEGER", "$I32", "$I64"):
             return self.is_a(var, int)
         elif name in ("$U32", "$U64"):
-            return self.and_op(self.is_a(var, int),
-                               self.num_cmp(self.value(var, int), ">=", self.const(0)))
+            return self.and_op(
+                self.is_a(var, int), self.num_cmp(self.value(var, int), ">=", self.const(0))
+            )
         elif name in ("$FLOAT", "$F32", "$F64"):
             return self.is_a(var, float)
         elif name == "$NUMBER":
@@ -273,7 +322,9 @@ class Language:
         """Whether testing for a property can be combined with an assignment."""
         return True
 
-    def obj_has_prop_val(self, dst: Var, obj: Var, prop: str|StrExpr, is_var: bool = False) -> BoolExpr:
+    def obj_has_prop_val(
+        self, dst: Var, obj: Var, prop: str | StrExpr, is_var: bool = False
+    ) -> BoolExpr:
         """Combined property test and value extraction, if assign_obj_prop."""
         raise NotImplementedError("obj_has_prop_val")
 
@@ -333,8 +384,9 @@ class Language:
         """Model check call for a string value."""
         return f"{name}({val}, {self.path(path)}, {self.rep()})"
 
-    def check_call(self, name: Var, val: JsonExpr, path: Var, *,
-                   is_ptr: bool = False, is_raw: bool = False) -> BoolExpr:
+    def check_call(
+        self, name: Var, val: JsonExpr, path: Var, *, is_ptr: bool = False, is_raw: bool = False
+    ) -> BoolExpr:
         """Model check call for a JSON value.
 
         is_ptr: the name is a function pointer, not a direct function
@@ -346,7 +398,9 @@ class Language:
         """Check uniqueness."""
         raise NotImplementedError("check_unique")
 
-    def check_constraint(self, op: str, vop: int|float|str, val: JsonExpr, path: Var) -> BoolExpr:
+    def check_constraint(
+        self, op: str, vop: int | float | str, val: JsonExpr, path: Var
+    ) -> BoolExpr:
         """Check constraint."""
         raise NotImplementedError("check_constraint")
 
@@ -360,8 +414,10 @@ class Language:
 
     def and_op(self, *exprs: BoolExpr) -> BoolExpr:
         """And logical operator."""
-        return f" {self._and} ".join(self.paren(e) if self._or in e else e  # type: ignore
-                                        for e in exprs)
+        return f" {self._and} ".join(
+            self.paren(e) if self._or in e else e  # type: ignore
+            for e in exprs
+        )
 
     def or_op(self, *exprs: BoolExpr) -> BoolExpr:
         """Or logical operator."""
@@ -439,9 +495,9 @@ class Language:
         """Generate lines comment."""
         if self._with_comment:
             if text:
-                return [ f"{self._lcom} {t}" for t in re.split(r"[\n\r\f]", text) ]
+                return [f"{self._lcom} {t}" for t in re.split(r"[\n\r\f]", text)]
             else:
-                return [ self._lcom ]
+                return [self._lcom]
         else:
             return []
 
@@ -449,44 +505,44 @@ class Language:
         """Block in block which may be created by IR optimizations."""
         return seq
 
-    def _var(self, var: Var, val: Expr|None, tname: str|None) -> Block:
+    def _var(self, var: Var, val: Expr | None, tname: str | None) -> Block:
         """Declare and/or assign a variable with a type."""
         raise NotImplementedError("var")
 
-    def json_var(self, var: Var, val: JsonExpr|None = None, declare: bool = False) -> Block:
+    def json_var(self, var: Var, val: JsonExpr | None = None, declare: bool = False) -> Block:
         """Declare a JSON variable."""
         return self._var(var, val, self._json_t if declare else None)
 
-    def bool_var(self, var: Var, val: BoolExpr|None = None, declare: bool = False) -> Block:
+    def bool_var(self, var: Var, val: BoolExpr | None = None, declare: bool = False) -> Block:
         """Declare a boolean variable."""
         return self._var(var, val, self._bool_t if declare else None)
 
-    def int_var(self, var: Var, val: IntExpr|None = None, declare: bool = False) -> Block:
+    def int_var(self, var: Var, val: IntExpr | None = None, declare: bool = False) -> Block:
         """Declare and assign to int variable."""
         return self._var(var, val, self._int_t if declare else None)
 
-    def str_var(self, var: Var, val: StrExpr|None = None, declare: bool = False) -> Block:
+    def str_var(self, var: Var, val: StrExpr | None = None, declare: bool = False) -> Block:
         """Declare and assign to str variable."""
         return self._var(var, val, self._str_t if declare else None)
 
-    def flt_var(self, var: Var, val: Expr|None = None, declare: bool = False) -> Block:
+    def flt_var(self, var: Var, val: Expr | None = None, declare: bool = False) -> Block:
         """Declare and assign to str variable."""
         return self._var(var, val, self._float_t if declare else None)
 
-    def fun_var(self, var: Var, val: Expr|None = None, declare: bool = False) -> Block:
+    def fun_var(self, var: Var, val: Expr | None = None, declare: bool = False) -> Block:
         """Declare a check function variable pointer."""
         # FIXME should guard for scalar?
         return self._var(var, val, self._check_t if declare else None)
 
-    def path_var(self, pvar: Var, val: PathExpr|None = None, declare: bool = False) -> Block:
+    def path_var(self, pvar: Var, val: PathExpr | None = None, declare: bool = False) -> Block:
         """Assign and possibly declare a value to a path variable."""
         return self._var(pvar, val, self._path_t if declare else None) if self._with_path else []
 
-    def match_var(self, var: Var, val: Expr|None = None, declare: bool = False) -> Block:
+    def match_var(self, var: Var, val: Expr | None = None, declare: bool = False) -> Block:
         """Assign and possibly declare a match result variable."""
         return self._var(var, val, self._match_t if declare else None)
 
-    def hash_var(self, var: Var, val: Expr|None = None, declare: bool = False) -> Block:
+    def hash_var(self, var: Var, val: Expr | None = None, declare: bool = False) -> Block:
         """Assign and possibly declare a value to a hash variable."""
         return self._var(var, val, self._hash_t if declare else None)
 
@@ -500,23 +556,23 @@ class Language:
 
     def iand_op(self, res: Var, e: BoolExpr) -> Block:
         """And-update boolean variable."""
-        return [ "{var} &= {e}{self._eoi}" ]
+        return ["{var} &= {e}{self._eoi}"]
 
     def inc_var(self, var: Var) -> Block:
         """Increment integer variable."""
-        return [ f"{var} += 1{self._eoi}" ]
+        return [f"{var} += 1{self._eoi}"]
 
     def ret(self, res: BoolExpr) -> Block:
         """Return boolean result."""
-        return [ f"return {res}{self._eoi}" ]
+        return [f"return {res}{self._eoi}"]
 
     def brk(self) -> Block:
         """Break from surrounding loop."""
-        return [ f"break{self._eoi}" ]
+        return [f"break{self._eoi}"]
 
     def cont(self) -> Block:
         """Skip to next loop interation."""
-        return [ f"continue{self._eoi}" ]
+        return [f"continue{self._eoi}"]
 
     def esc(self, s: str) -> StrExpr:
         """Escape string, with double quotes."""
@@ -524,11 +580,11 @@ class Language:
         # log.warning(f"esc: {s}")
         if isinstance(s, bool):
             s = "true" if s else "false"
-        return '"' + s.replace("\\", "\\\\").replace('"', r'\"') + '"'
+        return '"' + s.replace("\\", "\\\\").replace('"', r"\"") + '"'
 
     def skip(self) -> Block:
         """Skip one line."""
-        return [ "" ]
+        return [""]
 
     def ignore(self) -> Block:
         """Ignore this line."""
@@ -547,7 +603,7 @@ class Language:
     #
     # TODO consider merging path_var and path_val?
     #
-    def path_val(self, pvar: Var, pseg: str|int, is_prop: bool, is_var: bool) -> PathExpr:
+    def path_val(self, pvar: Var, pseg: str | int, is_prop: bool, is_var: bool) -> PathExpr:
         """Append a segment variable/value to path."""
         raise NotImplementedError("see derived classes")
 
@@ -573,7 +629,7 @@ class Language:
         """Indent a block, but not empty lines though."""
         return [
             ((self._indent + line) if line else line)
-                for line in filter(lambda s: s is not None, block)
+            for line in filter(lambda s: s is not None, block)
         ]
 
     def int_loop(self, idx: Var, start: IntExpr, end: IntExpr, body: Block) -> Block:
@@ -588,7 +644,9 @@ class Language:
         """Loop over all property-values pairs of an object."""
         raise NotImplementedError("obj_loop")
 
-    def if_stmt(self, cond: BoolExpr, true: Block, false: Block = [], likely: TestHint = None) -> Block:
+    def if_stmt(
+        self, cond: BoolExpr, true: Block, false: Block = [], likely: TestHint = None
+    ) -> Block:
         """Generate a if-then[-else] statement."""
         raise NotImplementedError("if_stmt")
 
@@ -683,7 +741,9 @@ class Language:
         """Get a match result for string variable var value."""
         raise NotImplementedError("see derived classes")
 
-    def match_val(self, mname: str, rname: str, sname: str, dname: str, declare: bool = False) -> Block:
+    def match_val(
+        self, mname: str, rname: str, sname: str, dname: str, declare: bool = False
+    ) -> Block:
         """Assign match "name" to variable sname."""
         raise NotImplementedError("see derived classes")
 
@@ -725,20 +785,25 @@ class Language:
         """Generate the deallocation function."""
         raise NotImplementedError("gen_free")
 
-    def gen_code(self, code: Block, entry: str, package: str|None, indent: bool = False) -> Block:
+    def gen_code(self, code: Block, entry: str, package: str | None, indent: bool = False) -> Block:
         """Generate substituted code."""
         if indent:
             code = self.indent(code, False)
         return [
-            line.replace("CHECK_FUNCTION_NAME", entry)
-                .replace("CHECK_PACKAGE_NAME", package or "")
-                    for line in code
+            line.replace("CHECK_FUNCTION_NAME", entry).replace("CHECK_PACKAGE_NAME", package or "")
+            for line in code
         ]
 
-    def gen_full_code(self,
-                defs: Block, inis: Block, dels: Block, subs: Block,
-                entry: str, package: str|None, exe: bool
-            ) -> Block:
+    def gen_full_code(
+        self,
+        defs: Block,
+        inis: Block,
+        dels: Block,
+        subs: Block,
+        entry: str,
+        package: str | None,
+        exe: bool,
+    ) -> Block:
         """Generate final code block."""
 
         # FIXME TODO remove, this is a bad idea
@@ -776,39 +841,41 @@ class Code:
     - `package`: generated name space
     """
 
-    def __init__(self,
-                lang: Language,
-                entry: str = "check_model",
-                executable: bool = True,
-                package: str|None = None):
-        self._lang = lang              # generated language abstraction
-        self._entry = entry            # entry function name/prefix
-        self._package = package        # generated name space
+    def __init__(
+        self,
+        lang: Language,
+        entry: str = "check_model",
+        executable: bool = True,
+        package: str | None = None,
+    ):
+        self._lang = lang  # generated language abstraction
+        self._entry = entry  # entry function name/prefix
+        self._package = package  # generated name space
         self._executable = executable  # executable (shebang, main) vs module
-        self._defs: Block = []         # definitions and declarations
-        self._inis: Block = []         # initialization code
-        self._dels: Block = []         # deallocation code
-        self._subs: Block = []         # actual subroutines
-        self._shortcuts = {}            # function shortcuts
+        self._defs: Block = []  # definitions and declarations
+        self._inis: Block = []  # initialization code
+        self._dels: Block = []  # deallocation code
+        self._subs: Block = []  # actual subroutines
+        self._shortcuts = {}  # function shortcuts
 
     #
     # add blocks
     #
-    def defs(self, b: Block|None = None):
+    def defs(self, b: Block | None = None):
         """Add lines to definitions."""
         self._defs += b if b is not None else self._lang.skip()
 
-    def subs(self, b: Block|None = None):
+    def subs(self, b: Block | None = None):
         """Add lines to subroutines."""
         if self._subs:
             self._subs += self._lang.skip()
         self._subs += b if b is not None else self._lang.skip()
 
-    def inis(self, b: Block|None = None):
+    def inis(self, b: Block | None = None):
         """Add lines to initialization code."""
         self._inis += b if b is not None else self._lang.skip()
 
-    def dels(self, b: Block|None = None):
+    def dels(self, b: Block | None = None):
         """Add lines to cleanup code."""
         self._dels += b if b is not None else self._lang.skip()
 
@@ -857,8 +924,13 @@ class Code:
         """Generate final code block."""
         return self._lang.filter_code(
             self._lang.gen_full_code(
-                self._defs, self._inis, self._dels, self._subs,
-                self._entry, self._package, self._executable
+                self._defs,
+                self._inis,
+                self._dels,
+                self._subs,
+                self._entry,
+                self._package,
+                self._executable,
             )
         )
 

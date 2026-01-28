@@ -359,6 +359,34 @@ def java_compile(java_code: str, args):
     assert status == 0, f"Java compilation succeeded: {command}"
 
 
+def go_compile(go_code: str, args):
+    """Compile Go source."""
+    tmp_dir = os.environ.get("TMPDIR", "/dev/shm")
+    output = Path(args.output or "a.out")
+
+    # Go source needs a .go extension
+    go_file = (Path(tmp_dir) / output.stem).with_suffix(".go")
+    with open(go_file, "w") as f:
+        f.write(go_code)
+
+    go = args.go or "go"
+    goflags = args.goflags or ""
+
+    # We build an executable or a library/object
+    if args.gen == "exec":
+        command = f"{go} build {goflags} -o {output} {go_file}"
+    else:
+        command = f"{go} build {goflags} -o {output} {go_file}"
+
+    if args.verbose:
+        log.info(f"Go compilation: {command}")
+    status = os.system(command)
+
+    # cleanup
+    go_file.unlink()
+    assert status == 0, f"Go compilation succeeded: {command}"
+
+
 def jmc_script():
     import argparse
 
@@ -511,7 +539,7 @@ def jmc_script():
     arg(
         "--format",
         "-F",
-        choices=["json", "yaml", "py", "c", "js", "plpgsql", "pl", "java"],
+        choices=["json", "yaml", "py", "c", "js", "plpgsql", "pl", "java", "go"],
         default=None,
         help="output language",
     )
@@ -528,9 +556,13 @@ def jmc_script():
     arg("--inline", default=True, action="store_true", help="enable function inlining")
     arg("--no-inline", dest="inline", action="store_false", help="disable function inlining")
 
-    # TODO java-specific options
+    # java-specific options
     arg("--javac", type=str, help="override default Java language compiler")
     arg("--jflags", type=str, help="add Java compiler flags")
+
+    # go-specific options
+    arg("--go", type=str, help="override default Go compiler (go)")
+    arg("--goflags", type=str, help="add Go compiler flags")
 
     # testing mode, expected results on values
     arg("--name", "-n", default="", help='name of validation submodel, default is "" (root)')
@@ -787,6 +819,10 @@ def jmc_script():
                 log.error(f"java class files cannot contain '-': {args.output}")
                 sys.exit(1)
             args.entry = args.entry or Path(args.output).stem.replace("-", "_")
+        elif args.output.endswith(".go"):
+            args.format = args.format or "go"
+            args.op = args.op or "C"
+            args.gen = args.gen or "source"
         elif args.output.endswith(".schema.json"):
             args.format = args.format or "json"
             args.op = args.op or "E"
@@ -811,7 +847,7 @@ def jmc_script():
         args.reporting = False if args.format == "plpgsql" else True
 
     if args.op is None:
-        args.op = "C" if args.format in ("c", "py", "js", "java", "plpgsql", "pl") else "P"
+        args.op = "C" if args.format in ("c", "py", "js", "java", "plpgsql", "pl", "go") else "P"
 
     # update op-dependent default
     if args.gen is None:
@@ -842,7 +878,7 @@ def jmc_script():
         sys.exit(1)
     if args.gen == "source" and (args.op != "C" or args.format not in LANG):
         log.error(
-            f"Showing code requires -C for C, Java, JavaScript, Perl, Python and PL/pgSQL: {args.op} {args.format}"
+            f"Showing code requires -C for C, Java, JavaScript, Perl, Python, Go and PL/pgSQL: {args.op} {args.format}"
         )
         sys.exit(1)
 
@@ -857,7 +893,7 @@ def jmc_script():
         else:
             log.warning("keeping float strictness as already set")
 
-    with_main = args.gen == "exec" or args.gen == "source" and args.format == "java"
+    with_main = args.gen == "exec" or args.gen == "source" and args.format in ("java", "go")
 
     # debug
     log.setLevel(logging.DEBUG if args.debug else logging.INFO if args.verbose else logging.WARNING)
@@ -976,11 +1012,13 @@ def jmc_script():
         )
         source = str(code)
 
-        # source to executable for C and java
+        # source to executable for C, Java and Go
         if args.format == "c" and args.gen in ("exec", "module"):
             clang_compile(source, args)
         elif args.format == "java" and args.gen in ("exec", "module"):
             java_compile(source, args)
+        elif args.format == "go" and args.gen in ("exec", "module"):
+            go_compile(source, args)
         elif args.gen != "none":
             print(source, file=output, end="", flush=True)
             if args.output != "-" and args.gen == "exec":

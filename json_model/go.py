@@ -10,9 +10,11 @@ from .language import (
     JsonScalar,
     Language,
     PathExpr,
+    PropMap,
     StrExpr,
     Var,
 )
+from .mtypes import Conditionals, Number, TestHint
 
 
 class Go(Language):
@@ -25,17 +27,17 @@ class Go(Language):
         debug: bool = False,
         with_report: bool = True,
         with_path: bool = True,
-        with_package: bool = True,
         with_predef: bool = True,
+        with_package: bool = True,
     ):
         super().__init__(
             "Go",
-            debug=debug,
             relib=relib,
+            debug=debug,
             with_report=with_report,
             with_path=with_path,
-            with_package=with_package,
             with_predef=with_predef,
+            with_package=with_package,
             not_op="!",
             and_op="&&",
             or_op="||",
@@ -45,158 +47,264 @@ class Go(Language):
             null="nil",
             check_t="bool",
             json_t="interface{}",
-            path_t="*Path",
+            path_t="*jm.Path",
             float_t="float64",
             str_t="string",
             bool_t="bool",
-            int_t="int",
-            match_t="bool",
-            eoi="",
-            set_caps=(type(None), bool, int, float, str),  # type: ignore
+            int_t="int64",
         )
 
-        assert relib in ("regexp"), f"only standard regexp supported, not {relib}"
+        assert relib in ("regexp"), f"support for regexp (standard library), not {relib}"
+        self.reindent = True
+        self._report_t = "*jm.Report"
 
-    # --- Expressions ---
+    def _var(self, var: Var, val: Expr | None, tname: str | None) -> Block:
+        """Déclare et/ou assigne une variable en Go."""
+        if tname:
+            # Déclaration explicite : var nom type = valeur
+            assign = f" = {val}" if val is not None else ""
+            return [f"var {var} {tname}{assign}"]
+        else:
+            # Assignation simple : nom = valeur
+            return [f"{var} = {val}"]
 
-    def val(self, variable: Var) -> JsonExpr:
-        """Dereference interface{} to actual type is tricky in Go without type assertion.
-        Here we assume the variable is already cast or we use a helper.
-        For the generated code, we usually expect 'val' to be interface{}.
-        """
-        return variable
+    #
+    # Type tests
+    #
+    def is_num(self, var: Var) -> BoolExpr:
+        return f"jm.IsNumber({var})"
 
-    def is_null(self, var: Var) -> BoolExpr:
-        return f"{var} == nil"
+    def is_def(self, var: Var) -> BoolExpr:
+        return f"{var} != nil"
 
-    def is_bool(self, var: Var) -> BoolExpr:
-        return f"IsBool({var})"
+    def is_scalar(self, var: Var) -> BoolExpr:
+        return f"jm.IsScalar({var})"
 
-    def is_int(self, var: Var) -> BoolExpr:
-        return f"IsInteger({var})"
+    def is_a(self, var: Var, tval: type | None, loose: bool | None = None) -> BoolExpr:
+        if tval is None or tval is type(None):
+            return f"{var} == nil"
+        elif tval is bool:
+            return f"jm.IsBool({var})"
+        elif tval is int:
+            check = f"jm.IsInteger({var})"
+            if loose:
+                # En Go, on vérifie si c'est un float sans partie fractionnaire
+                check = f"({check} || (jm.IsFloat({var}) && jm.AsFloat({var}) == float64(int64(jm.AsFloat({var})))))"
+            return check
+        elif tval is float:
+            return self.is_num(var) if loose else f"jm.IsFloat({var})"
+        elif tval is Number:
+            return self.is_num(var)
+        elif tval is str:
+            return f"jm.IsString({var})"
+        elif tval is list:
+            return f"jm.IsArray({var})"
+        elif tval is dict:
+            return f"jm.IsObject({var})"
+        return "false"
 
-    def is_float(self, var: Var) -> BoolExpr:
-        return f"IsNumber({var})"
+    #
+    # Predefs
+    #
+    def predef(self, var: Var, name: str, path: Var, is_str: bool = False) -> BoolExpr:
+        # Si les prédefs sont désactivées, on valide juste le type string
+        if not self._with_predef and self.str_content_predef(name):
+            return self.const(True) if is_str else self.is_a(var, str)
 
-    def is_str(self, var: Var) -> BoolExpr:
-        return f"IsString({var})"
+        # Préparation du préfixe de type et de la conversion en string
+        prefix = "" if is_str else f"jm.IsString({var}) && "
+        val = var if is_str else f"jm.AsString({var})"
 
-    def is_list(self, var: Var) -> BoolExpr:
-        return f"IsArray({var})"
+        # Mapping des prédefs vers le runtime Go
+        rt_funcs = {
+            "$UUID": "IsValidUUID",
+            "$DATE": "IsValidDate",  # Appelera jm.IsValidDate(val)
+            "$TIME": "IsValidTime",
+            "$DATETIME": "IsValidDateTime",
+            "$REGEX": "IsValidRegex",
+            "$URL": "IsValidURL",
+            "$URI": "IsValidURI",
+            "$EMAIL": "IsValidEmail",
+            "$JSON": "IsValidJSON",
+        }
 
-    def is_obj(self, var: Var) -> BoolExpr:
-        return f"IsObject({var})"
+        if name in rt_funcs:
+            # FIX: On retire {path} et rep pour n'avoir qu'un seul argument
+            return f"{prefix}jm.{rt_funcs[name]}({val})"
 
-    # --- Type Conversions (Helpers expected in runtime) ---
+        return super().predef(var, name, path, is_str)
 
-    def to_bool(self, var: Var) -> BoolExpr:
-        return f"AsBool({var})"
+    #
+    # Expressions & Extraction
+    #
+    def value(self, var: Var, tvar: type) -> Expr:
+        if tvar is bool:
+            return f"jm.AsBool({var})"
+        if tvar is int:
+            return f"jm.AsInt({var})"
+        if tvar is float:
+            return f"jm.AsFloat({var})"
+        if tvar is str:
+            return f"jm.AsString({var})"
+        return var
 
-    def to_int(self, var: Var) -> IntExpr:
-        return f"AsInt({var})"
+    def obj_prop_val(self, obj: Var, prop: str | StrExpr, is_var: bool = False) -> JsonExpr:
+        p = prop if is_var else self.esc(prop)
+        return f"jm.ObjectGet({obj}, {p})"
 
-    def to_float(self, var: Var) -> Expr:
-        return f"AsFloat({var})"
+    def has_prop(self, obj: Var, prop: str) -> BoolExpr:
+        return f"jm.ObjectHasProp({obj}, {self.esc(prop)})"
 
-    def to_str(self, var: Var) -> StrExpr:
-        return f"AsString({var})"
+    def obj_has_prop_val(
+        self, dst: Var, obj: Var, prop: str | StrExpr, is_var: bool = False
+    ) -> BoolExpr:
+        # Go ne supporte pas l'assignation dans une expression de comparaison de la même manière que Python (:=)
+        # Sauf dans le cadre d'un 'if'. Cette fonction est souvent utilisée par l'optimiseur.
+        return f"jm.ObjectHasPropVal({obj}, {self.esc(prop) if not is_var else prop}, &{dst})"
 
-    def to_list(self, var: Var) -> Expr:
-        return f"AsArray({var})"
+    def any_len(self, var: Var) -> IntExpr:
+        return f"jm.Len({var})"
 
-    def to_obj(self, var: Var) -> Expr:
-        return f"AsObject({var})"
+    #
+    # Loops & Blocks
+    #
+    def arr_loop(self, arr: Var, idx: Var, val: Var, body: Block) -> Block:
+        return [f"for {idx}, {val} := range jm.AsArray({arr}) {{"] + self.indent(body) + ["}"]
 
-    # --- Structure ---
+    def obj_loop(self, obj: Var, key: Var, val: Var, body: Block) -> Block:
+        return [f"for {key}, {val} := range jm.AsObject({obj}) {{"] + self.indent(body) + ["}"]
 
-    def header(self, name: str, imports: list[str]) -> Block:
-        code = [f"package {name or 'main'}", ""]
+    def int_loop(self, idx: Var, start: IntExpr, end: IntExpr, body: Block) -> Block:
+        return [f"for {idx} := {start}; {idx} < {end}; {idx}++ {{"] + self.indent(body) + ["}"]
 
-        # Standard imports
-        std_imports = ['"fmt"']
-        if self._relib == "regexp":
-            std_imports.append('"regexp"')
-
-        # Add provided imports if any
-        all_imports = std_imports + [f'"{i}"' for i in imports]
-
-        code.append("import (")
-        for i in sorted(set(all_imports)):
-            code.append(f"    {i}")
-        code.append(")")
+    def if_stmt(
+        self, cond: BoolExpr, true: Block, false: Block = [], likely: TestHint = None
+    ) -> Block:
+        code = [f"if {cond} {{"] + self.indent(true)
+        if false:
+            code += ["} else {"] + self.indent(false)
+        code += ["}"]
         return code
 
-    def footer(self) -> Block:
-        return []
+    def mif_stmt(self, cond_true: Conditionals, false: Block = []) -> Block:
+        code, op = [], "if"
+        for cond, likely, true in cond_true:
+            code += [f"{op} {cond} {{"]
+            code += self.indent(true)
+            op = "} else if"
+        if false:
+            code += ["} else {"] + self.indent(false)
+        code += ["}"]
+        return code
 
-    # --- Function Definition ---
+    #
+    # Reporting & Path
+    #
+    def is_reporting(self) -> BoolExpr:
+        return "rep != nil"
+
+    def report(self, msg: str, path: Var) -> Block:
+        return (
+            [f"if rep != nil {{ rep.Add({self.esc(msg)}, {path}) }}"] if self._with_report else []
+        )
+
+    def clean_report(self) -> Block:
+        return ["if rep != nil { rep.Clear() }"]
+
+    def path_val(self, pvar: Var, pseg: str | int, is_prop: bool, is_var: bool) -> PathExpr:
+        if not self._with_path:
+            return "nil"
+        sseg = pseg if is_var else self.esc(pseg) if is_prop else f"jm.IntToSeg({pseg})"
+        return f"jm.ExtendPath({pvar}, {sseg})"
+
+    def path_lvar(self, lvar: Var, rvar: Var) -> PathExpr:
+        return f"jm.SelectPath({lvar}, {rvar} != nil)" if self._with_path else "nil"
+
+    #
+    # Function definitions
+    #
+
+    def sub_re(self, name: str, regex: str, opts: str) -> Block:
+        return [
+            f"func {name}(val string, path *jm.Path, rep *jm.Report) bool {{",
+            f"    return {name}_re.MatchString(val)",
+            "}",
+        ]
 
     def sub_fun(self, name: str, body: Block, inline: bool = False) -> Block:
-        # func Name(val interface{}, path *Path, rep *Report) bool
         return (
-            [f"func {name}(val interface{{}}, path *Path, rep *Report) bool {{"]
+            [f"func {name}(val interface{{}}, path *jm.Path, rep *jm.Report) bool {{"]
             + self.indent(body)
             + ["}"]
         )
 
-    def call_fun(self, name: str, val: Var, path: PathExpr, report: Var) -> BoolExpr:
-        return f"{name}({val}, {path}, {report})"
+    def def_pmap(self, name: str, pmap: PropMap, public: bool) -> Block:
+        return [f"var {name} map[string]Checker"]
 
-    # --- Regular Expressions ---
+    def ini_pmap(self, name: str, pmap: PropMap, public: bool) -> Block:
+        lines = [f"{name} = map[string]Checker{{"]
+        for p, f in pmap.items():
+            lines.append(f"    {self.esc(p)}: {f},")
+        lines.append("}")
+        return lines
 
+    #
+    # Regexp
+    #
     def def_re(self, name: str, regex: str, opts: str) -> Block:
-        # Go regexp doesn't support many flags like Perl/Python (e.g. standard library is simple)
-        # We usually compile them at package level (var) or init
-        return [f"var {name}_re = regexp.MustCompile(`{regex}`)"]
+        return [f"var {name}_re *regexp.Regexp"]
 
-    def match_re(self, name: str, var: Var, regex: str, opts: str) -> BoolExpr:
-        # var must be string here
+    def ini_re(self, name: str, regex: str, opts: str) -> Block:
+        sregex = self.esc((f"(?{opts})" if opts else "") + regex)
+        return [f"{name}_re = regexp.MustCompile({sregex})"]
+
+    def match_re(self, name: str, var: str, regex: str, opts: str) -> BoolExpr:
         return f"{name}_re.MatchString({var})"
 
-    # --- Collections (Maps/Sets for constants) ---
+    #
+    # File handling
+    #
 
-    def def_cset(self, name: str, constants: ConstList) -> Block:
-        # Define a map[type]bool for O(1) lookup.
-        return (
-            [f"var {name}_set = map[interface{{}}]bool{{"]
-            + [f"    {self.json_cst(c)}: true," for c in constants]
-            + ["}"]
-        )
+    def file_header(self, exe: bool = True) -> Block:
+        code = super().file_header(exe)
+        pkg_name = "main" if exe else "CHECK_PACKAGE_NAME"
+        code += [f"package {pkg_name}", ""]
 
-    def in_cset(self, name: str, var: Var, constants: ConstList) -> BoolExpr:
-        return f"{name}_set[{var}]"
+        code.append("import (")
+        code.append('    "fmt"')
+        code.append('    "regexp"')
+        # Remplacez 'votre-module' par le nom défini dans votre fichier go.mod
+        code.append('    jm "jsonmodel/json_model/runtime/go/jsonmodel"')
+        code.append(")")
 
-    # --- Constant Maps (Used for property optimization) ---
+        code += ["", "type Checker func(interface{}, *jm.Path, *jm.Report) bool", ""]
+        return code
 
-    def def_cmap(self, name: str, mapping: dict[JsonScalar, str]) -> Block:
-        # A map from constant values (usually property names) to check functions.
-        # In Go: map[interface{}]func(any, *Path, *Report) bool
-        return (
-            [f"var {name} = map[interface{{}}]func(interface{{}}, *Path, *Report) bool{{"]
-            + [f"    {self.json_cst(k)}: {v}," for k, v in mapping.items()]
-            + ["}"]
-        )
+    # --- Gestion de l'initialisation et de la libération ---
 
-    def get_cmap(self, name: str, tag: Var, ttag: type) -> Expr:
-        return f"{name}[{tag}]"
+    def gen_init(self, init: Block) -> Block:
+        """
+        Génère la fonction d'initialisation globale.
+        Elle utilise un modèle de fichier 'go_init.go' pour structurer le code.
+        """
+        return self.file_subs("go_init.go", init)
 
-    def ini_cmap(self, name: str, mapping: dict[JsonScalar, str]) -> Block:
-        return []
+    def gen_free(self, free: Block) -> Block:
+        """
+        Génère la fonction de nettoyage (free/cleanup).
+        En Go, cela est moins critique qu'en C, mais utile pour réinitialiser des singletons.
+        """
+        return self.file_subs("go_free.go", free)
 
-    def del_cmap(self, name: str, mapping: dict[JsonScalar, str]) -> Block:
-        return []
+    def gen_code(self, code: Block, entry: str, package: str | None, indent: bool = False) -> Block:
+        """Remplace les marqueurs globaux dans le code généré."""
+        if indent:
+            code = self.indent(code, False)
 
-    # --- Utilities ---
+        # On s'assure que le package par défaut est 'main' s'il n'est pas fourni
+        pkg_name = package if package else "main"
 
-    def length(self, var: Var) -> IntExpr:
-        return f"len({var})"
-
-    # Go specific formatting for constants
-    def json_cst(self, c: JsonScalar) -> str:
-        if c is None:
-            return "nil"
-        if isinstance(c, bool):
-            return "true" if c else "false"
-        if isinstance(c, str):
-            return json.dumps(c)  # Handles escaping quotes, newlines, etc.
-        return str(c)
+        return [
+            line.replace("CHECK_FUNCTION_NAME", entry).replace("CHECK_PACKAGE_NAME", pkg_name)
+            for line in code
+        ]

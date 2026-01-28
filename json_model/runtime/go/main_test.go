@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	// Use the correct import path for your library
-	"jsonmodel/jsonmodel"
+	"jsonmodel/json_model/runtime/go/jsonmodel"
 )
 
 func TestCheckPerson(t *testing.T) {

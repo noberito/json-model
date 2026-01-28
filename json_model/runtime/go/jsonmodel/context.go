@@ -34,7 +34,7 @@ type Report struct {
 	Errors []string
 }
 
-func (r *Report) AddError(msg string, path *Path) {
+func (r *Report) Add (msg string, path *Path) {
 	// In C, paths are reconstructed on error. Here we format immediately.
 	r.Errors = append(r.Errors, fmt.Sprintf("%s: %s", path.String(), msg))
 }
