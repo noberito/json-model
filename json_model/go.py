@@ -265,15 +265,17 @@ class Go(Language):
     # File handling
     #
 
-    def file_header(self, exe: bool = True) -> Block:
-        code = super().file_header(exe)
-        pkg_name = "main" if exe else "CHECK_PACKAGE_NAME"
-        code += [f"package {pkg_name}", ""]
+    def file_header(self, exe: bool, package: str | None) -> Block:
+        pkg = package if package else "main"
+        code = [f"package {pkg}", ""]
 
         code.append("import (")
         code.append('    "fmt"')
         code.append('    "regexp"')
-        # Remplacez 'votre-module' par le nom défini dans votre fichier go.mod
+        if exe:
+            code.append('    "os"')
+            code.append('    "encoding/json"')
+        # Importation de votre runtime local
         code.append('    jm "jsonmodel/json_model/runtime/go/jsonmodel"')
         code.append(")")
 
@@ -307,4 +309,87 @@ class Go(Language):
         return [
             line.replace("CHECK_FUNCTION_NAME", entry).replace("CHECK_PACKAGE_NAME", pkg_name)
             for line in code
+        ]
+
+    # In json_model/go.py
+
+    def gen_full_code(
+        self,
+        defs: Block,
+        inis: Block,
+        dels: Block,
+        subs: Block,
+        entry: str,
+        package: str | None,
+        exe: bool,
+    ) -> Block:
+        """Génère le code final assemblé pour Go."""
+
+        # 1. Génération de l'entête (Package + Imports)
+        # On passe 'package' pour utiliser le nom choisi ou 'main' par défaut
+        full_code = self.file_header(exe, package)
+
+        # 2. Ajout des définitions globales (Variables, Regex)
+        full_code += defs
+        full_code += [""]
+
+        # 3. Ajout des fonctions de vérification (Sub-functions)
+        # On traite les marqueurs comme CHECK_FUNCTION_NAME dans les fonctions générées
+        processed_subs = self.gen_code(subs, entry, package)
+        full_code += processed_subs
+        full_code += [""]
+
+        # 4. Injection de l'initialisation et du nettoyage via les templates
+        # Ces méthodes utilisent 'file_subs' pour remplacer CODE_BLOCK
+        full_code += self.gen_init(inis)
+        full_code += [""]
+        full_code += self.gen_free(dels)
+
+        # 5. Ajout de la fonction main pour le pipeline CLI
+        if exe:
+            full_code += self.gen_main_function(entry)
+
+        return full_code
+
+    # Dans json_model/go.py
+
+    def gen_main_function(self, entry: str) -> Block:
+        return [
+            "",
+            "func main() {",
+            "    if len(os.Args) < 2 {",
+            '        fmt.Printf("Usage: %s <json_file>\\n", os.Args[0])',
+            "        os.Exit(1)",
+            "    }",
+            "",
+            "    // Lecture du fichier spécifié en argument",
+            "    data, err := os.ReadFile(os.Args[1])",
+            "    if err != nil {",
+            '        fmt.Printf("Erreur lors de la lecture du fichier: %v\\n", err)',
+            "        os.Exit(1)",
+            "    }",
+            "",
+            "    var input interface{}",
+            "    if err := json.Unmarshal(data, &input); err != nil {",
+            '        fmt.Printf("Erreur de parsing JSON: %v\\n", err)',
+            "        os.Exit(1)",
+            "    }",
+            "",
+            "    // Initialisation du validateur (regex, etc.)",
+            "    check_model_init()",
+            "    report := &jm.Report{}",
+            "",
+            "    // Appel de la validation via l'entrée par défaut",
+            '    isValid := check_model_map[""](input, nil, report)',
+            "",
+            "    if isValid {",
+            '        fmt.Println("✅ Le JSON est valide selon le modèle !")',
+            "    } else {",
+            '        fmt.Println("❌ Le JSON est invalide :")',
+            "        for _, errMsg := range report.Errors {",
+            '            fmt.Printf("  - %s\\n", errMsg)',
+            "        }",
+            "        os.Exit(1)",
+            "    }",
+            "}",
         ]
