@@ -4,75 +4,75 @@ import (
 	"testing"
 )
 
-// TestExtendPath vérifie la création correcte de la liste chaînée du chemin
+// TestExtendPath verifies the linked-list path nesting
 func TestExtendPath(t *testing.T) {
-	root := &Path{Name: "root", Index: -1}
-	child := ExtendPath(root, "sub")
+	parent := &Path{Name: "user", Index: -1}
+	child := ExtendPath(parent, "email")
 
-	if child.Parent != root {
-		t.Errorf("Le parent devrait être root")
+	if child.Parent != parent {
+		t.Errorf("Expected parent to be %v, got %v", parent, child.Parent)
 	}
-	if child.Name != "sub" {
-		t.Errorf("Le nom attendu était 'sub', obtenu %s", child.Name)
-	}
-	if child.Index != -1 {
-		t.Errorf("L'index par défaut pour une propriété doit être -1")
+	if child.Name != "email" {
+		t.Errorf("Expected name 'email', got %s", child.Name)
 	}
 }
 
-// TestSelectPath valide le retour conditionnel pour le reporting
+// TestSelectPath ensures conditional reporting logic works
 func TestSelectPath(t *testing.T) {
-	p := &Path{Name: "test"}
-	
-	if SelectPath(p, true) != p {
-		t.Error("SelectPath(true) devrait retourner le chemin")
+	path := &Path{Name: "test"}
+
+	if SelectPath(path, true) != path {
+		t.Error("SelectPath(true) should return the path instance")
 	}
-	if SelectPath(p, false) != nil {
-		t.Error("SelectPath(false) devrait retourner nil")
+	if SelectPath(path, false) != nil {
+		t.Error("SelectPath(false) should return nil")
 	}
 }
 
-// TestLen vérifie la réflexion sur différentes structures
+// TestLen validates the reflection-based length checker
 func TestLen(t *testing.T) {
-	tests := []struct {
+	testCases := []struct {
 		input    interface{}
 		expected int
 	}{
-		{map[string]interface{}{"a": 1, "b": 2}, 2},
-		{[]int{1, 2, 3, 4}, 4},
-		{"hello", 5},
-		{123, 0}, // Type non supporté par Len()
-		{nil, 0},
+		{map[string]int{"a": 1, "b": 2}, 2},
+		{[]string{"one", "two", "three"}, 3},
+		{"hello world", 11},
+		{42, 0},     // Integers have no length
+		{nil, 0},    // Nil has no length
 	}
 
-	for _, tt := range tests {
-		result := Len(tt.input)
-		if result != tt.expected {
-			t.Errorf("Len(%v): attendu %d, obtenu %d", tt.input, tt.expected, result)
+	for _, tc := range testCases {
+		res := Len(tc.input)
+		if res != tc.expected {
+			t.Errorf("Len(%v) failed: expected %d, got %d", tc.input, tc.expected, res)
 		}
 	}
 }
 
-// TestObjectHasPropVal vérifie l'extraction sécurisée des propriétés
+// TestObjectHasPropVal checks safe map extraction
 func TestObjectHasPropVal(t *testing.T) {
-	obj := map[string]interface{}{"name": "Hobbes"}
-	var dst interface{}
-
-	// Cas : Propriété existante
-	if !ObjectHasPropVal(obj, "name", &dst) {
-		t.Error("Devrait trouver la propriété 'name'")
+	data := map[string]interface{}{
+		"name": "Hobbes",
+		"age":  6,
 	}
-	if dst != "Hobbes" {
-		t.Errorf("Valeur incorrecte: attendu Hobbes, obtenu %v", dst)
-	}
+	var target interface{}
 
-	// Cas : Propriété manquante
-	if ObjectHasPropVal(obj, "age", &dst) {
-		t.Error("Ne devrait pas trouver la propriété 'age'")
+	// Case 1: Key exists
+	if !ObjectHasPropVal(data, "name", &target) {
+		t.Fatal("Should have found key 'name'")
+	}
+	if target != "Hobbes" {
+		t.Errorf("Expected 'Hobbes', got %v", target)
 	}
 
-	// Cas : Objet de type invalide (pas une map)
-	if ObjectHasPropVal([]string{"pas", "une", "map"}, "name", &dst) {
-		t.Error("Devrait retourner false pour un type non-map")
+	// Case 2: Key missing
+	if ObjectHasPropVal(data, "gender", &target) {
+		t.Error("Should NOT have found key 'gender'")
+	}
+
+	// Case 3: Input is not a map
+	if ObjectHasPropVal("not-a-map", "name", &target) {
+		t.Error("Should return false when input is a string")
 	}
 }

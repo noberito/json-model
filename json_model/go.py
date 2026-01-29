@@ -59,13 +59,13 @@ class Go(Language):
         self._report_t = "*jm.Report"
 
     def _var(self, var: Var, val: Expr | None, tname: str | None) -> Block:
-        """Déclare et/ou assigne une variable en Go."""
+        """Declares and/or assigns a variable in Go."""
         if tname:
-            # Déclaration explicite : var nom type = valeur
+            # Explicit declaration: var name type = value
             assign = f" = {val}" if val is not None else ""
             return [f"var {var} {tname}{assign}"]
         else:
-            # Assignation simple : nom = valeur
+            # Simple assignment: name = value
             return [f"{var} = {val}"]
 
     #
@@ -88,7 +88,7 @@ class Go(Language):
         elif tval is int:
             check = f"jm.IsInteger({var})"
             if loose:
-                # En Go, on vérifie si c'est un float sans partie fractionnaire
+                # In Go, we check if it is a float with no fractional part
                 check = f"({check} || (jm.IsFloat({var}) && jm.AsFloat({var}) == float64(int64(jm.AsFloat({var})))))"
             return check
         elif tval is float:
@@ -104,21 +104,21 @@ class Go(Language):
         return "false"
 
     #
-    # Predefs
+    # Predefined checks (Predefs)
     #
     def predef(self, var: Var, name: str, path: Var, is_str: bool = False) -> BoolExpr:
-        # Si les prédefs sont désactivées, on valide juste le type string
+        # If predefs are disabled, just validate the string type
         if not self._with_predef and self.str_content_predef(name):
             return self.const(True) if is_str else self.is_a(var, str)
 
-        # Préparation du préfixe de type et de la conversion en string
+        # Prepare type prefix and string conversion
         prefix = "" if is_str else f"jm.IsString({var}) && "
         val = var if is_str else f"jm.AsString({var})"
 
-        # Mapping des prédefs vers le runtime Go
+        # Mapping predefs to the Go runtime functions
         rt_funcs = {
             "$UUID": "IsValidUUID",
-            "$DATE": "IsValidDate",  # Appelera jm.IsValidDate(val)
+            "$DATE": "IsValidDate",  # Calls jm.IsValidDate(val)
             "$TIME": "IsValidTime",
             "$DATETIME": "IsValidDateTime",
             "$REGEX": "IsValidRegex",
@@ -129,7 +129,7 @@ class Go(Language):
         }
 
         if name in rt_funcs:
-            # FIX: On retire {path} et rep pour n'avoir qu'un seul argument
+            # FIX: Remove {path} and rep to use only a single argument
             return f"{prefix}jm.{rt_funcs[name]}({val})"
 
         return super().predef(var, name, path, is_str)
@@ -158,8 +158,8 @@ class Go(Language):
     def obj_has_prop_val(
         self, dst: Var, obj: Var, prop: str | StrExpr, is_var: bool = False
     ) -> BoolExpr:
-        # Go ne supporte pas l'assignation dans une expression de comparaison de la même manière que Python (:=)
-        # Sauf dans le cadre d'un 'if'. Cette fonction est souvent utilisée par l'optimiseur.
+        # Go does not support assignment within comparison expressions like Python (:=),
+        # except within an 'if' statement. This function is frequently used by the optimizer.
         return f"jm.ObjectHasPropVal({obj}, {self.esc(prop) if not is_var else prop}, &{dst})"
 
     def any_len(self, var: Var) -> IntExpr:
@@ -214,8 +214,15 @@ class Go(Language):
     def path_val(self, pvar: Var, pseg: str | int, is_prop: bool, is_var: bool) -> PathExpr:
         if not self._with_path:
             return "nil"
-        sseg = pseg if is_var else self.esc(pseg) if is_prop else f"jm.IntToSeg({pseg})"
-        return f"jm.ExtendPath({pvar}, {sseg})"
+
+        if is_prop:
+            # For object properties: use ExtendPath(parent, "name")
+            name = pseg if is_var else self.esc(pseg)
+            return f"jm.ExtendPath({pvar}, {name})"
+        else:
+            # For array indices: use ExtendPathIndex(parent, index)
+            # We cast to int() to be safe with different Go int types
+            return f"jm.ExtendPathIndex({pvar}, int({pseg}))"
 
     def path_lvar(self, lvar: Var, rvar: Var) -> PathExpr:
         return f"jm.SelectPath({lvar}, {rvar} != nil)" if self._with_path else "nil"
@@ -275,43 +282,42 @@ class Go(Language):
         if exe:
             code.append('    "os"')
             code.append('    "encoding/json"')
-        # Importation de votre runtime local
+            code.append('    "flag"')  # Added for argument parsing
+        # Import your local runtime
         code.append('    jm "jsonmodel/json_model/runtime/go/jsonmodel"')
         code.append(")")
 
         code += ["", "type Checker func(interface{}, *jm.Path, *jm.Report) bool", ""]
         return code
 
-    # --- Gestion de l'initialisation et de la libération ---
+    # --- Initialization and Liberation handling ---
 
     def gen_init(self, init: Block) -> Block:
         """
-        Génère la fonction d'initialisation globale.
-        Elle utilise un modèle de fichier 'go_init.go' pour structurer le code.
+        Generates the global initialization function.
+        Uses the 'go_init.go' file template to structure the code.
         """
         return self.file_subs("go_init.go", init)
 
     def gen_free(self, free: Block) -> Block:
         """
-        Génère la fonction de nettoyage (free/cleanup).
-        En Go, cela est moins critique qu'en C, mais utile pour réinitialiser des singletons.
+        Generates the cleanup function (free/cleanup).
+        In Go, this is less critical than in C, but useful for resetting singletons.
         """
         return self.file_subs("go_free.go", free)
 
     def gen_code(self, code: Block, entry: str, package: str | None, indent: bool = False) -> Block:
-        """Remplace les marqueurs globaux dans le code généré."""
+        """Replaces global markers in the generated code."""
         if indent:
             code = self.indent(code, False)
 
-        # On s'assure que le package par défaut est 'main' s'il n'est pas fourni
+        # Ensure the default package is 'main' if not provided
         pkg_name = package if package else "main"
 
         return [
             line.replace("CHECK_FUNCTION_NAME", entry).replace("CHECK_PACKAGE_NAME", pkg_name)
             for line in code
         ]
-
-    # In json_model/go.py
 
     def gen_full_code(
         self,
@@ -323,73 +329,105 @@ class Go(Language):
         package: str | None,
         exe: bool,
     ) -> Block:
-        """Génère le code final assemblé pour Go."""
+        """Generates the final assembled code for Go."""
 
-        # 1. Génération de l'entête (Package + Imports)
-        # On passe 'package' pour utiliser le nom choisi ou 'main' par défaut
+        # 1. Header generation (Package + Imports)
+        # Use provided 'package' name or default to 'main'
         full_code = self.file_header(exe, package)
 
-        # 2. Ajout des définitions globales (Variables, Regex)
+        # 2. Add global definitions (Variables, Regex)
         full_code += defs
         full_code += [""]
 
-        # 3. Ajout des fonctions de vérification (Sub-functions)
-        # On traite les marqueurs comme CHECK_FUNCTION_NAME dans les fonctions générées
+        # 3. Add verification functions (Sub-functions)
+        # Process markers like CHECK_FUNCTION_NAME in generated functions
         processed_subs = self.gen_code(subs, entry, package)
         full_code += processed_subs
         full_code += [""]
 
-        # 4. Injection de l'initialisation et du nettoyage via les templates
-        # Ces méthodes utilisent 'file_subs' pour remplacer CODE_BLOCK
+        # 4. Inject initialization and cleanup via templates
+        # These methods use 'file_subs' to replace CODE_BLOCK
         full_code += self.gen_init(inis)
         full_code += [""]
         full_code += self.gen_free(dels)
 
-        # 5. Ajout de la fonction main pour le pipeline CLI
+        # 5. Add main function for the CLI pipeline
         if exe:
             full_code += self.gen_main_function(entry)
 
         return full_code
 
-    # Dans json_model/go.py
-
     def gen_main_function(self, entry: str) -> Block:
         return [
             "",
             "func main() {",
-            "    if len(os.Args) < 2 {",
-            '        fmt.Printf("Usage: %s <json_file>\\n", os.Args[0])',
+            '    testMode := flag.Bool("t", false, "run in test mode with a list of [[expected, val], ...]")',
+            "    flag.Parse()",
+            "    args := flag.Args()",
+            "",
+            "    if len(args) < 1 {",
+            '        fmt.Printf("Usage: %s [-t] <json_file>\\n", os.Args[0])',
             "        os.Exit(1)",
             "    }",
             "",
-            "    // Lecture du fichier spécifié en argument",
-            "    data, err := os.ReadFile(os.Args[1])",
+            "    data, err := os.ReadFile(args[0])",
             "    if err != nil {",
-            '        fmt.Printf("Erreur lors de la lecture du fichier: %v\\n", err)',
+            '        fmt.Printf("Error reading file: %v\\n", err)',
             "        os.Exit(1)",
             "    }",
             "",
-            "    var input interface{}",
-            "    if err := json.Unmarshal(data, &input); err != nil {",
-            '        fmt.Printf("Erreur de parsing JSON: %v\\n", err)',
-            "        os.Exit(1)",
-            "    }",
-            "",
-            "    // Initialisation du validateur (regex, etc.)",
             "    check_model_init()",
-            "    report := &jm.Report{}",
+            "    defer check_model_free()",
             "",
-            "    // Appel de la validation via l'entrée par défaut",
-            '    isValid := check_model_map[""](input, nil, report)',
-            "",
-            "    if isValid {",
-            '        fmt.Println("✅ Le JSON est valide selon le modèle !")',
-            "    } else {",
-            '        fmt.Println("❌ Le JSON est invalide :")',
-            "        for _, errMsg := range report.Errors {",
-            '            fmt.Printf("  - %s\\n", errMsg)',
+            "    if *testMode {",
+            "        var cases [][]interface{}",
+            "        if err := json.Unmarshal(data, &cases); err != nil {",
+            '            fmt.Printf("Test suite JSON error: %v\\n", err)',
+            "            os.Exit(1)",
             "        }",
-            "        os.Exit(1)",
+            "",
+            "        failed := 0",
+            "        for i, c := range cases {",
+            "            if len(c) < 2 { continue }",
+            "            expected, _ := c[0].(bool)",
+            "            input := c[1]",
+            "",
+            "            report := &jm.Report{}",
+            '            isValid := check_model_map[""](input, nil, report)',
+            "",
+            "            if isValid == expected {",
+            '                fmt.Printf("Test #%d: PASS\\n", i)',
+            "            } else {",
+            '                fmt.Printf("Test #%d: FAIL (expected %v, got %v)\\n", i, expected, isValid)',
+            "                for _, errMsg := range report.Errors {",
+            '                    fmt.Printf("  - %s\\n", errMsg)',
+            "                }",
+            "                failed++",
+            "            }",
+            "        }",
+            "        if failed > 0 {",
+            '            fmt.Printf("\\nDone: %d tests failed\\n", failed)',
+            "            os.Exit(1)",
+            "        }",
+            '        fmt.Println("\\nDone: All tests passed")',
+            "    } else {",
+            "        // Standard single-file validation logic",
+            "        var input interface{}",
+            "        if err := json.Unmarshal(data, &input); err != nil {",
+            '            fmt.Printf("JSON parsing error: %v\\n", err)',
+            "            os.Exit(1)",
+            "        }",
+            "        report := &jm.Report{}",
+            '        isValid := check_model_map[""](input, nil, report)',
+            "        if isValid {",
+            '            fmt.Println("PASS")',
+            "        } else {",
+            '            fmt.Println("FAIL")',
+            "            for _, errMsg := range report.Errors {",
+            '                fmt.Printf("  - %s\\n", errMsg)',
+            "            }",
+            "            os.Exit(1)",
+            "        }",
             "    }",
             "}",
         ]

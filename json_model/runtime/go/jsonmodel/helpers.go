@@ -7,6 +7,11 @@ func ExtendPath(p *Path, name string) *Path {
 	return &Path{Parent: p, Name: name, Index: -1}
 }
 
+// ExtendPathIndex creates a new path segment for an array index
+func ExtendPathIndex(p *Path, index int) *Path {
+    return &Path{Parent: p, Name: "", Index: index}
+}
+
 // SelectPath returns the current path if the condition is met (used for reporting)
 func SelectPath(p *Path, condition bool) *Path {
 	if condition {

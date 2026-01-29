@@ -1,65 +1,47 @@
 package main
 
 import (
-    "fmt"
-    "regexp"
-    "os"
-    "encoding/json"
-    "flag"
-    jm "jsonmodel/json_model/runtime/go/jsonmodel"
+	"encoding/json"
+	"flag"
+	"fmt"
+	jm "jsonmodel/json_model/runtime/go/jsonmodel"
+	"os"
 )
 
 type Checker func(interface{}, *jm.Path, *jm.Report) bool
 
-var _jm_re_0_re *regexp.Regexp
 var check_model_map map[string]Checker
-
-func _jm_re_0(val string, path *jm.Path, rep *jm.Report) bool {
-    return _jm_re_0_re.MatchString(val)
-}
 
 // check $ (.)
 func json_model_1(val interface{}, path *jm.Path, rep *jm.Report) bool {
-    // A person with a birth date
     // .
-    // check close must only props
-    if ! jm.IsObject(val) {
-        if rep != nil { rep.Add("not an object [.]", path) }
-        return false
+    var res bool = jm.IsArray(val)
+    if res {
+        for arr_0_idx, arr_0_item := range jm.AsArray(val) {
+            var arr_0_lpath *jm.Path = jm.ExtendPathIndex(path, int(arr_0_idx))
+            // .0
+            res = jm.IsArray(arr_0_item)
+            if res {
+                for arr_1_idx, arr_1_item := range jm.AsArray(arr_0_item) {
+                    var arr_1_lpath *jm.Path = jm.ExtendPathIndex(jm.SelectPath(arr_0_lpath, path != nil), int(arr_1_idx))
+                    // .0.0
+                    res = jm.IsString(arr_1_item)
+                    if ! res {
+                        if rep != nil { rep.Add("unexpected string [.0.0]", jm.SelectPath(arr_1_lpath, jm.SelectPath(arr_0_lpath, path != nil) != nil)) }
+                        break
+                    }
+                }
+            }
+            if ! res {
+                if rep != nil { rep.Add("not array or unexpected array [.0]", jm.SelectPath(arr_0_lpath, path != nil)) }
+                break
+            }
+        }
     }
-    if jm.Len(val) != 2 {
-        if rep != nil { rep.Add("bad property count [.]", path) }
-        return false
-    }
-    var lpath *jm.Path
-    var pval interface{}
-    var res bool
-    if ! jm.ObjectHasPropVal(val, "name", &pval) {
-        if rep != nil { rep.Add("missing mandatory prop <name> [.]", path) }
-        return false
-    }
-    lpath = jm.ExtendPath(path, "name")
-    // .name
-    // "/^[a-z]+$/i"
-    res = jm.IsString(pval) && _jm_re_0(jm.AsString(pval), jm.SelectPath(lpath, path != nil), rep)
     if ! res {
-        if rep != nil { rep.Add("unexpected /^[a-z]+$/i [.name]", jm.SelectPath(lpath, path != nil)) }
-        if rep != nil { rep.Add("unexpected value for mandatory prop <name> [.]", jm.SelectPath(lpath, path != nil)) }
-        return false
+        if rep != nil { rep.Add("not array or unexpected array [.]", path) }
     }
-    if ! jm.ObjectHasPropVal(val, "born", &pval) {
-        if rep != nil { rep.Add("missing mandatory prop <born> [.]", path) }
-        return false
-    }
-    lpath = jm.ExtendPath(path, "born")
-    // .born
-    res = jm.IsString(pval) && jm.IsValidDate(jm.AsString(pval))
-    if ! res {
-        if rep != nil { rep.Add("unexpected $DATE [.born]", jm.SelectPath(lpath, path != nil)) }
-        if rep != nil { rep.Add("unexpected value for mandatory prop <born> [.]", jm.SelectPath(lpath, path != nil)) }
-        return false
-    }
-    return true
+    return res
 }
 
 
@@ -73,7 +55,6 @@ func check_model_init() {
 			}
 		}()
 
-        _jm_re_0_re = regexp.MustCompile("(?i)^[a-z]+$")
         check_model_map = map[string]Checker{
             "": json_model_1,
         }
